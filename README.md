@@ -43,11 +43,11 @@ pip install Pillow python-docx moviepy win11toast fpdf docx2pdf pymupdf pdf2docx
 1. Create executable files:
    Download zip or Clone the repository:
    ```sh
-   git clone https://github.com/yourusername/file-converter.git
+   git clone https://github.com/N1ck6/PocketConverter.git
    ```
    Navigate to the project directory and Install dependencies and pyinstaller:
    ```sh
-   cd file-converter
+   cd PocketConverter
    pip install -r requirements.txt
    ```
    Run pyinstaller:
