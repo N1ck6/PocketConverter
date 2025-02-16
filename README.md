@@ -1,5 +1,7 @@
 # File Converter
 
+## Install from the Latest Release: https://github.com/N1ck6/PocketConverter/releases/
+
 ## Overview
 File Converter is a lightweight and fast file format conversion tool that integrates directly into the Windows context menu. It allows users to instantly convert files between various formats without requiring an internet connection, ensuring privacy and speed.
 
