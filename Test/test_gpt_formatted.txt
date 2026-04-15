@@ -1,0 +1,25 @@
+# Test file with GPT markdown formatting and formulas
+
+## Introduction
+This is a **bold text** and this is *italic text*.
+
+### Mathematical Formulas
+Here are some formulas:
+- Square root: √(x) and \sqrt{x}
+- Cube root: ³√(8)
+- Fraction: \frac{a+b}{c}
+- Power: x^2 and **4**
+- Math symbols: 5 × 3, 10 ÷ 2, 5 − 3, ±1
+- Constants: π radians, approaching ∞
+- Trig: \sin(x), \cos(x), \tan(x)
+- Parentheses: \left(a + b\right)
+
+### Links and Code
+Visit [Google](https://google.com) for more info.
+Use `code blocks` for inline code.
+
+> This is a quote block
+
+1. First item
+2. Second item
+3. Third item
