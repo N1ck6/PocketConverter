@@ -2,138 +2,81 @@
 Handles conversions between MP4, GIF, PNG formats and audio extraction.
 """
 
-from PIL import Image
+from PIL import Image, ImageSequence
 from pathlib import Path
 from moviepy import VideoFileClip
-from converter_app.utils import check_ffmpeg, get_ffmpeg_help, show_toast, ICON_PATH
-import sys
+from converter_app.utils import check_ffmpeg, show_toast
+import subprocess
 
 
 class AnimatedConverter:
-    
     SUPPORTED_EXTENSIONS = {'mp4', 'gif', 'mp3', 'wav', 'flac', 'aac', 'ogg'}
+    AUDIO_CODECS = {'mp3': 'libmp3lame', 'wav': 'pcm_s16le', 'flac': 'flac', 'aac': 'aac', 'ogg': 'libvorbis'}
     
     def __init__(self, audio_bitrate: str = '192k', video_bitrate: str = '2000k'):
         self.audio_bitrate = audio_bitrate
         self.video_bitrate = video_bitrate
     
-    def _check_ffmpeg(self, operation: str = "video/audio conversion"):
-        if not check_ffmpeg():
-            show_toast(
-                "FFmpeg Required",
-                f"FFmpeg is needed for {operation}. Please install it.",
-                icon=ICON_PATH
-            )
-            print(get_ffmpeg_help(), file=sys.stderr)
-            raise RuntimeError("FFmpeg not found")
+    @staticmethod
+    def _ensure_ffmpeg() -> bool:
+        if not check_ffmpeg(): show_toast("FFmpeg Required", "FFmpeg is needed for media conversion. Please install it.")
     
     def convert(self, filepath: str, mode: str, new_name: str,
-                audio_bitrate: str = None, video_bitrate: str = None,
-                fps: int = 10):
+                audio_bitrate: str = None, video_bitrate: str = None, fps: int = 10) -> None:
+        if not self._ensure_ffmpeg():
+            return
         ext = Path(filepath).suffix
-        
-        if ext == ".mp4":
-            self._convert_from_mp4(filepath, mode, new_name, audio_bitrate, video_bitrate, fps)
-        elif ext == ".gif":
-            self._convert_from_gif(filepath, mode, new_name, video_bitrate, fps)
-        elif ext in ['.mp3', '.wav', '.flac', '.aac', '.ogg']:
-            self._convert_audio(filepath, mode, new_name, audio_bitrate)
+        mode = mode.lower()
+        ab = audio_bitrate or self.audio_bitrate
+        vb = video_bitrate or self.video_bitrate
+        out_dir = Path(filepath).parent
+
+        if ext == 'mp4':
+            self._route_mp4(filepath, mode, out_dir / new_name, ab, vb, fps)
+        elif ext == 'gif':
+            self._route_gif(filepath, mode, out_dir / new_name, vb, fps)
+        elif ext in self.AUDIO_CODECS:
+            self._convert_audio(filepath, mode, out_dir / f"{new_name}.{mode}", ab)
+        else:
+            show_toast("Error", f"Unsupported source format .{ext}")
+
+    def _route_mp4(self, fp: str, mode: str, out_path: Path, ab: str, vb: str, fps: int) -> None:
+        if mode == 'gif': self._video_to_gif(fp, out_path, fps)
+        elif mode in self.AUDIO_CODECS: self._video_to_audio(fp, out_path, ab, mode)
+        else: show_toast("Error", f"Target format '{mode}' not supported for MP4")
+
+    def _route_gif(self, fp: str, mode: str, out_path: Path, vb: str, fps: int) -> None:
+        if mode == 'mp4': self._gif_to_video(fp, out_path, vb)
+        elif mode in ('png', 'pngs'):
+            target = out_path.parent / f"{out_path.stem}_frames" if mode == 'pngs' else out_path.parent / f"{out_path.stem}.png"
+            self._gif_to_photos(fp, target, mode == 'pngs')
+        else: show_toast("Error", f"Target format '{mode}' not supported for GIF")
     
-    def _convert_from_mp4(self, filepath: str, mode: str, new_name: str,
-                          audio_bitrate: str = None, video_bitrate: str = None, fps: int = 10):
-        if mode == "gif":
-            self._video_to_gif(filepath, new_name, fps)
-        elif mode == "mp3":
-            self._video_to_audio(filepath, new_name, audio_bitrate)
-        elif mode in ['wav', 'flac', 'aac', 'ogg']:
-            self._video_to_audio(filepath, new_name, audio_bitrate, output_format=mode)
-    
-    def _convert_from_gif(self, filepath: str, mode: str, new_name: str,
-                          video_bitrate: str = None, fps: int = 10):
-        if mode == "pngs":
-            self._gif_to_photos(filepath, new_name)
-        elif mode == "png":
-            self._gif_to_photo(filepath, new_name)
-        elif mode == "mp4":
-            self._gif_to_video(filepath, new_name, video_bitrate)
-    
-    def _convert_audio(self, filepath: str, mode: str, new_name: str, audio_bitrate: str = None):
-        self._check_ffmpeg("audio format conversion")
+    def _convert_audio(self, fp: str, mode: str, out_path: Path, ab: str) -> None:
+        cmd = ['ffmpeg', '-i', fp, '-acodec', self.AUDIO_CODECS[mode], '-b:a', ab, '-y', str(out_path)]
         
-        import subprocess
-        
-        output_path = Path(filepath).parent / f"{new_name}.{mode}"
-        
-        codec_map = {
-            'mp3': 'libmp3lame',
-            'wav': 'pcm_s16le',
-            'flac': 'flac',
-            'aac': 'aac',
-            'ogg': 'libvorbis'
-        }
-        
-        cmd = [
-            'ffmpeg', '-i', filepath,
-            '-acodec', codec_map.get(mode, mode),
-            '-b:a', audio_bitrate or self.audio_bitrate,
-            '-y',
-            str(output_path)
-        ]
-        
-        try:
-            subprocess.run(cmd, check=True, capture_output=True)
+        try: subprocess.run(cmd, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Audio conversion failed: {e.stderr.decode()}")
+            show_toast("Error", f"Audio conversion failed: {e.stderr.decode(errors='ignore')}")
     
-    def _video_to_gif(self, filepath: str, new_name: str, fps: int = 10):
-        self._check_ffmpeg("GIF conversion")
-        
-        output_path = Path(filepath).parent / f"{new_name}.gif"
-        clip = VideoFileClip(filepath)
-        clip.write_gif(output_path, fps=fps, logger=None)
-        clip.close()
+    def _video_to_gif(self, fp: str, out_path: Path, fps: int) -> None:
+        with VideoFileClip(fp) as clip:
+            clip.write_gif(str(out_path), fps=fps, logger=None)
+
+    def _video_to_audio(self, fp: str, out_path: Path, ab: str, fmt: str) -> None:
+        with VideoFileClip(fp) as clip:
+            clip.audio.write_audiofile(str(out_path), bitrate=ab, logger=None)
+
+    def _gif_to_video(self, fp: str, out_path: Path, vb: str) -> None:
+        with VideoFileClip(fp) as clip:
+            clip.write_videofile(str(out_path), bitrate=vb, logger=None)
     
-    def _video_to_audio(self, filepath: str, new_name: str, 
-                        audio_bitrate: str = None, output_format: str = 'mp3'):
-        self._check_ffmpeg("audio extraction")
-        
-        output_path = Path(filepath).parent / f"{new_name}.{output_format}"
-        video = VideoFileClip(filepath)
-        video.audio.write_audiofile(
-            output_path, 
-            bitrate=audio_bitrate or self.audio_bitrate,
-            logger=None
-        )
-        video.close()
-    
-    def _gif_to_video(self, filepath: str, new_name: str, video_bitrate: str = None):
-        self._check_ffmpeg("GIF to video conversion")
-        
-        output_path = Path(filepath).parent / f"{new_name}.mp4"
-        video = VideoFileClip(filepath)
-        video.write_videofile(
-            output_path, 
-            bitrate=video_bitrate or self.video_bitrate,
-            logger=None
-        )
-        video.close()
-    
-    def _gif_to_photo(self, filepath: str, new_name: str):
-        frame = Image.open(filepath)
-        output_path = Path(filepath).parent / f"{new_name}.png"
-        frame.save(output_path, 'PNG')
-    
-    def _gif_to_photos(self, filepath: str, new_name: str):
-        output_folder = Path(filepath).parent / "extracted gif"
-        output_folder.mkdir(exist_ok=True)
-        
-        frame = Image.open(filepath)
-        nframes = 0
-        
-        while frame:
-            frame.save(output_folder / f"{new_name}-{nframes}.png", 'PNG')
-            nframes += 1
-            try:
-                frame.seek(nframes)
-            except EOFError:
-                break
+    def _gif_to_photos(self, fp: str, out_path: Path, extract_all: bool) -> None:
+        out_path.parent.mkdir(exist_ok=True)
+        base = out_path.stem
+        with Image.open(fp) as img:
+            if extract_all:
+                for i, frame in enumerate(ImageSequence.Iterator(img)):
+                    frame.save(out_path.parent / f"{base}-{i}.png", "PNG")
+            else:
+                img.save(out_path, "PNG")

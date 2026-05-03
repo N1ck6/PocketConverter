@@ -1,0 +1,32 @@
+# Test Heading
+## Subheading
+### Deep heading
+
+This is **bold** and *italic* text.
+
+Math: √(16) = 4, ³√(27) = 3
+
+Formula: \frac{1}{2} + \frac{3}{4} = \frac{5}{4}
+
+Power: 2^4 = 16
+
+Symbols: 5 × 5 = 25, 10 ÷ 2 = 5, 7 − 3 = 4
+
+Constants: π ≈ 3.14, e ≈ 2.718
+
+Trig functions: \sin(0) = 0, \cos(0) = 1
+
+LaTeX delimiters: \left(x + y\right)^2 = x^2 + 2xy + y^2
+
+Links: [Example](https://example.com)
+
+Code: `print("Hello")`
+
+Lists:
+- Item 1
+- Item 2
+- Item 3
+
+Quotes:
+> Quote line 1
+> Quote line 2

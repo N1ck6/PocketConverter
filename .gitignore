@@ -13,7 +13,12 @@ venv/
 # Logs
 *.log
 
-# Editor/IDE files
+# Coverage reports
+.coverage
+coverage/
+htmlcov/
+
+# IDE files
 .vscode/
 .vs/
 .idea/
@@ -31,7 +36,11 @@ target/
 coverage/
 htmlcov/
 
-# Dependency cache
+# Dependencies cache
 .mypy_cache/
 .pytest_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
 ```
