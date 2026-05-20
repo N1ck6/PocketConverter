@@ -27,6 +27,7 @@ class DataConverter:
         handler = handlers.get(ext)
         if not handler:
             show_toast("Error", f"Source format .{ext} not supported by DataConverter")
+            return
         handler(filepath, mode, new_name)
 
     def _convert_from_json(self, filepath: str, mode: str, new_name: str):
@@ -50,6 +51,7 @@ class DataConverter:
             import yaml
         except ImportError:
             show_toast("Error", "PyYAML package required")
+            return
         with open(filepath, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
         self._route_out(data, filepath, mode, new_name)
@@ -86,19 +88,37 @@ class DataConverter:
         target = [data] if isinstance(data, dict) else data
         for item in target:
             self._dict_to_xml(item, root)
-        ET.ElementTree(root).write(out, encoding='utf-8', xml_declaration=True)
+        tree = ET.ElementTree(root)
+        with open(out, 'wb') as f:
+            tree.write(f, encoding='utf-8', xml_declaration=True)
 
-    def _dict_to_xml(self, data, dict, parent):
+    def _data_to_yaml(self, data, filepath: str, new_name: str):
+        try:
+            import yaml
+        except ImportError:
+            show_toast("Error", "PyYAML package required")
+            return
+        out = Path(filepath).parent / f"{new_name}.yaml"
+        with open(out, 'w', encoding='utf-8') as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    def _dict_to_xml(self, data, parent):
+        """Recursively convert dict/list data to XML elements under parent."""
         import xml.etree.ElementTree as ET
         for k, v in data.items():
             k = str(k).replace(' ', '_').replace('-', '_')
             if isinstance(v, dict):
-                c = ET.SubElement(parent, k); self._dict_to_xml(v, c)
+                c = ET.SubElement(parent, k)
+                self._dict_to_xml(v, c)
             elif isinstance(v, list):
                 c = ET.SubElement(parent, k)
                 for i in v:
-                    if isinstance(i, dict): ic = ET.SubElement(c, 'item'); self._dict_to_xml(i, ic)
-                    else: ic = ET.SubElement(c, 'item'); ic.text = str(i)
+                    if isinstance(i, dict):
+                        ic = ET.SubElement(c, 'item')
+                        self._dict_to_xml(i, ic)
+                    else:
+                        ic = ET.SubElement(c, 'item')
+                        ic.text = str(i)
             else:
                 ET.SubElement(parent, k).text = str(v)
 

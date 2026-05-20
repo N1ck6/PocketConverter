@@ -59,7 +59,10 @@ pip install -r requirements.txt
 ```bash
 # Single file
 python converter.py input.jpg png
+# Always quote file paths that contain (, ), &, |, ^, %, or spaces.
+python converter.py "input file(1).jpg" png
 ```
+
 
 ### Python API
 ```python

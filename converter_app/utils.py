@@ -9,6 +9,7 @@ from win11toast import toast, toast_async
 from typing import Optional, List, Dict
 import threading
 import asyncio
+import hashlib
 
 SUPPORTED_EXTENSIONS = [
     'mp4', 'gif', 'txt', 'pdf', 'docx', 'jpg', 'jpeg', 'png', 
@@ -119,3 +120,33 @@ def log_error(ext, target):
             log_file.write(traceback.format_exc())
             log_file.write('---------------------------------------------------------------------\n')
     show_toast("Conversion error", f"Check log file in exe directory in Program Files for more information")
+
+def _sha256_text(text: str) -> str:
+    """Return SHA256 hex digest of a UTF-8 string."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _image_pixel_hash(path: Path) -> str:
+    """Hash the raw RGB pixel data (deterministic regardless of metadata)."""
+    from PIL import Image
+    img = Image.open(path)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    return hashlib.sha256(img.tobytes()).hexdigest()
+
+
+def _pdf_text_hash(path: Path) -> str:
+    """Extract text from PDF and return its SHA256 hash."""
+    import pymupdf
+    doc = pymupdf.open(str(path))
+    text = "".join(page.get_text("text") for page in doc)
+    doc.close()
+    return _sha256_text(text)
+
+
+def _docx_text_hash(path: Path) -> str:
+    """Extract text from DOCX and return its SHA256 hash."""
+    from docx import Document
+    doc = Document(str(path))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    return _sha256_text(text)

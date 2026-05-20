@@ -15,171 +15,183 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from converter_app.image_converter import ImageConverter
 from converter_app.document_converter import DocumentConverter
 from converter_app.folder_converter import DataConverter, BatchProcessor
+from converter_app.utils import _sha256_text, _image_pixel_hash, _pdf_text_hash, _docx_text_hash
 
+# Expected SHA256 hashes
+HASH = {
+    # ── DocumentConverter ──
+    "txt_to_pdf":   "bdd62d24400bda5f949feef040ee81d12d99cf59544b86aad63b46f8566017a8",
+    "txt_to_docx":  "c6e20ac29adf95481d582a1624fece6f13858fea1e27b4445c2e51d3ff8a49fe",
+    "md_to_html":   "274f4499c45db64414d1ef4c5513b819c72b216e7f72b37a0d6aa9e12f3c9d24",
+    "html_to_txt":  "fcb0cc3c62ff84a0a1fc3de9242514434b5d4cd82e97611168c81508e7dd3c71",
+    "md_to_txt":    "e983b42b4cfa06ec78bfb801ed9b26adf713412d97337c59339f4d3ab503147c",
+
+    # ── ImageConverter (pixel hashes) ──
+    "png_to_jpg":   "71769ca2e8ab0c6913868951cd3f3dedd2a91e1b84f8f06007b981e3742aa257",
+    "png_to_bmp":   "d02a8da86fec6ef80c209c8437c76cf8fbecb6528cd7ba95ef93eecc52a171c7",
+    "jpg_to_png":   "cccb95455522c0eea4edaddef2921f9cc0eae3e4120c5691ab878c4558ced55d",
+    "bmp_to_webp":  "0dbb746cbe56dd10d7bb319e8ad0ba1d3f736d709a90fbcdea3f63e2d1a4f1b4",
+
+    # ── DataConverter ──
+    "json_to_csv":  "bfb7e00208ff62a2ed59f9890f2fd2b4dcdb533ee043b252d75ec68f96293559",
+    "json_to_xml":  "03421661858c3bd94a622429f1e8a4b19b9aa0179ee399b755a8dfcfcb159b18",
+    "csv_to_json":  "c0840f5777f389f21611705ddbb36f19661bb2da5f1e42abc6465b9a7a550fc1",
+    "xml_to_json":  "f1a728a1b83af48f23102b50fc9b3ace1065652a5a98e3f2a7b28b64f3d9e26d",
+    "yaml_to_json": "5e0533807b3d372823bec729e74a5bdacdc07a6bafe38bf726b3ce78ba5bb751",
+    "json_to_yaml": "6f27adab722bfb2b9d1238a0123323a1dfccfab74de9e2165cc18796ffe1187b",
+
+    # ── Integration ──
+    "integration_single": "cccb95455522c0eea4edaddef2921f9cc0eae3e4120c5691ab878c4558ced55d",
+}
 
 class TestImageConverter(unittest.TestCase):
     """Test image conversion functionality."""
 
     @classmethod
     def setUpClass(cls):
-        """Set up test fixtures once for all tests in class."""
-        cls.test_dir = Path(__file__).parent / 'samples'
+        cls.test_dir = Path(__file__).parent
         cls.temp_dir = Path(tempfile.mkdtemp())
         cls.converter = ImageConverter()
 
-        # Copy sample files to temp directory for testing
-        for ext in ['png', 'jpg', 'bmp']:
-            src = cls.test_dir / f'sample.{ext}'
-            if src.exists():
-                shutil.copy(src, cls.temp_dir / f'test.{ext}')
-
     @classmethod
     def tearDownClass(cls):
-        """Clean up after all tests."""
         if cls.temp_dir.exists():
             shutil.rmtree(cls.temp_dir)
 
     def setUp(self):
-        """Reset temp directory before each test."""
-        for f in self.temp_dir.glob('*'):
+        for f in self.temp_dir.glob("*"):
             if f.is_file():
                 f.unlink()
-        # Restore sample files
-        for ext in ['png', 'jpg', 'bmp']:
-            src = self.test_dir / f'sample.{ext}'
+        for ext in ["png", "jpg", "bmp"]:
+            src = self.test_dir / f"sample.{ext}"
             if src.exists():
-                shutil.copy(src, self.temp_dir / f'test.{ext}')
+                shutil.copy(src, self.temp_dir / f"sample.{ext}")
 
     def test_png_to_jpg_conversion(self):
-        """Test PNG to JPG conversion."""
-        input_file = self.temp_dir / 'test.png'
-        if not input_file.exists():
-            self.skipTest("Sample PNG file not found")
+        input_file = self.temp_dir / "sample.png"
+        self.assertTrue(input_file.exists(), "Sample PNG file must exist")
 
-        self.converter.convert(str(input_file), 'jpg', 'output')
-        output_file = self.temp_dir / 'output.jpg'
+        self.converter.convert(str(input_file), "jpg", "output")
+        output_file = self.temp_dir / "output.jpg"
 
         self.assertTrue(output_file.exists(), "JPG output file should be created")
         self.assertGreater(output_file.stat().st_size, 0, "Output file should not be empty")
+        actual = _image_pixel_hash(output_file)
+        self.assertEqual(actual, HASH["png_to_jpg"],
+                         f"PNG->JPG hash mismatch. ACTUAL: {actual}")
 
     def test_png_to_bmp_conversion(self):
-        """Test PNG to BMP conversion."""
-        input_file = self.temp_dir / 'test.png'
-        if not input_file.exists():
-            self.skipTest("Sample PNG file not found")
+        input_file = self.temp_dir / "sample.png"
+        self.assertTrue(input_file.exists(), "Sample PNG file must exist")
 
-        self.converter.convert(str(input_file), 'bmp', 'output')
-        output_file = self.temp_dir / 'output.bmp'
+        self.converter.convert(str(input_file), "bmp", "output")
+        output_file = self.temp_dir / "output.bmp"
 
         self.assertTrue(output_file.exists(), "BMP output file should be created")
+        actual = _image_pixel_hash(output_file)
+        self.assertEqual(actual, HASH["png_to_bmp"],
+                         f"PNG->BMP hash mismatch. ACTUAL: {actual}")
 
     def test_jpg_to_png_conversion(self):
-        """Test JPG to PNG conversion."""
-        input_file = self.temp_dir / 'test.jpg'
-        if not input_file.exists():
-            self.skipTest("Sample JPG file not found")
+        input_file = self.temp_dir / "sample.jpg"
+        self.assertTrue(input_file.exists(), "Sample JPG file must exist")
 
-        self.converter.convert(str(input_file), 'png', 'output')
-        output_file = self.temp_dir / 'output.png'
+        self.converter.convert(str(input_file), "png", "output")
+        output_file = self.temp_dir / "output.png"
 
         self.assertTrue(output_file.exists(), "PNG output file should be created")
+        actual = _image_pixel_hash(output_file)
+        self.assertEqual(actual, HASH["jpg_to_png"],
+                         f"JPG->PNG hash mismatch. ACTUAL: {actual}")
 
     def test_bmp_to_webp_conversion(self):
-        """Test BMP to WEBP conversion."""
-        input_file = self.temp_dir / 'test.bmp'
-        if not input_file.exists():
-            self.skipTest("Sample BMP file not found")
+        input_file = self.temp_dir / "sample.bmp"
+        self.assertTrue(input_file.exists(), "Sample BMP file must exist")
 
-        self.converter.convert(str(input_file), 'webp', 'output')
-        output_file = self.temp_dir / 'output.webp'
+        self.converter.convert(str(input_file), "webp", "output")
+        output_file = self.temp_dir / "output.webp"
 
         self.assertTrue(output_file.exists(), "WEBP output file should be created")
-
+        actual = _image_pixel_hash(output_file)
+        self.assertEqual(actual, HASH["bmp_to_webp"],
+                         f"BMP->WEBP hash mismatch. ACTUAL: {actual}")
 
 class TestDocumentConverter(unittest.TestCase):
     """Test document conversion functionality."""
 
     @classmethod
     def setUpClass(cls):
-        """Set up test fixtures."""
-        cls.test_dir = Path(__file__).parent / 'samples'
+        cls.test_dir = Path(__file__).parent
         cls.temp_dir = Path(tempfile.mkdtemp())
         cls.converter = DocumentConverter()
 
     @classmethod
     def tearDownClass(cls):
-        """Clean up after all tests."""
         if cls.temp_dir.exists():
             shutil.rmtree(cls.temp_dir)
 
     def setUp(self):
-        """Reset temp directory before each test."""
-        for f in self.temp_dir.glob('*'):
+        for f in self.temp_dir.glob("*"):
             if f.is_file():
                 f.unlink()
-        # Restore sample files
-        for ext in ['txt', 'md', 'html']:
-            src = self.test_dir / f'sample.{ext}'
+        for ext in ["txt", "md", "html"]:
+            src = self.test_dir / f"sample.{ext}"
             if src.exists():
-                shutil.copy(src, self.temp_dir / f'test.{ext}')
+                shutil.copy(src, self.temp_dir / f"sample.{ext}")
 
     def test_txt_to_pdf_conversion(self):
-        """Test TXT to PDF conversion."""
-        input_file = self.temp_dir / 'test.txt'
-        if not input_file.exists():
-            self.skipTest("Sample TXT file not found")
+        input_file = self.temp_dir / "sample.txt"
+        self.assertTrue(input_file.exists(), "Sample TXT file must exist")
 
-        try:
-            self.converter.convert(str(input_file), 'pdf', 'output')
-            output_file = self.temp_dir / 'output.pdf'
+        self.converter.convert(str(input_file), "pdf", "output")
+        output_file = self.temp_dir / "output.pdf"
 
-            self.assertTrue(output_file.exists(), "PDF output file should be created")
-            self.assertGreater(output_file.stat().st_size, 0, "Output file should not be empty")
-        except Exception as e:
-            self.skipTest(f"PDF conversion failed: {e}")
+        self.assertTrue(output_file.exists(), "PDF output file should be created")
+        self.assertGreater(output_file.stat().st_size, 0, "Output file should not be empty")
+        actual = _pdf_text_hash(output_file)
+        self.assertEqual(actual, HASH["txt_to_pdf"],
+                         f"TXT->PDF hash mismatch. ACTUAL: {actual}")
 
     def test_txt_to_docx_conversion(self):
-        """Test TXT to DOCX conversion."""
-        input_file = self.temp_dir / 'test.txt'
-        if not input_file.exists():
-            self.skipTest("Sample TXT file not found")
+        input_file = self.temp_dir / "sample.txt"
+        self.assertTrue(input_file.exists(), "Sample TXT file must exist")
 
-        try:
-            self.converter.convert(str(input_file), 'docx', 'output')
-            output_file = self.temp_dir / 'output.docx'
+        self.converter.convert(str(input_file), "docx", "output")
+        output_file = self.temp_dir / "output.docx"
 
-            self.assertTrue(output_file.exists(), "DOCX output file should be created")
-        except Exception as e:
-            self.skipTest(f"DOCX conversion failed: {e}")
+        self.assertTrue(output_file.exists(), "DOCX output file should be created")
+        actual = _docx_text_hash(output_file)
+        self.assertEqual(actual, HASH["txt_to_docx"],
+                         f"TXT->DOCX hash mismatch. ACTUAL: {actual}")
 
     def test_md_to_html_conversion(self):
-        """Test Markdown to HTML conversion."""
-        input_file = self.temp_dir / 'test.md'
-        if not input_file.exists():
-            self.skipTest("Sample MD file not found")
+        input_file = self.temp_dir / "sample.md"
+        self.assertTrue(input_file.exists(), "Sample MD file must exist")
 
-        self.converter.convert(str(input_file), 'html', 'output')
-        output_file = self.temp_dir / 'output.html'
+        self.converter.convert(str(input_file), "html", "output")
+        output_file = self.temp_dir / "output.html"
 
         self.assertTrue(output_file.exists(), "HTML output file should be created")
-
-        content = output_file.read_text(encoding='utf-8')
-        self.assertIn('<html', content)
-        self.assertIn('</html>', content)
+        content = output_file.read_text(encoding="utf-8")
+        self.assertIn("<html", content)
+        self.assertIn("</html>", content)
+        actual = _sha256_text(content)
+        self.assertEqual(actual, HASH["md_to_html"],
+                         f"MD->HTML hash mismatch. ACTUAL: {actual}")
 
     def test_html_to_txt_conversion(self):
-        """Test HTML to TXT conversion."""
-        input_file = self.temp_dir / 'test.html'
-        if not input_file.exists():
-            self.skipTest("Sample HTML file not found")
+        input_file = self.temp_dir / "sample.html"
+        self.assertTrue(input_file.exists(), "Sample HTML file must exist")
 
-        self.converter.convert(str(input_file), 'txt', 'output')
-        output_file = self.temp_dir / 'output.txt'
+        self.converter.convert(str(input_file), "txt", "output")
+        output_file = self.temp_dir / "output.txt"
 
         self.assertTrue(output_file.exists(), "TXT output file should be created")
-
-        content = output_file.read_text(encoding='utf-8')
-        self.assertIn('Hello World', content)
+        content = output_file.read_text(encoding="utf-8")
+        self.assertIn("Hello World", content)
+        actual = _sha256_text(content)
+        self.assertEqual(actual, HASH["html_to_txt"],
+                         f"HTML->TXT hash mismatch. ACTUAL: {actual}")
 
     # GPT Support Tests - from test_converters_last.py
     def test_process_txt_with_gpt_support_removes_headings(self):
@@ -234,7 +246,7 @@ class TestDocumentConverter(unittest.TestCase):
 
     def test_md_to_txt_cleaning(self):
         """Test that markdown syntax is cleaned when converting to TXT."""
-        input_file = self.temp_dir / 'test.md'
+        input_file = self.temp_dir / 'sample.md'
         if not input_file.exists():
             self.skipTest("Sample MD file not found")
 
@@ -345,246 +357,228 @@ class TestDocumentConverter(unittest.TestCase):
             if test_file.exists():
                 test_file.unlink()
 
-
 class TestDataConverter(unittest.TestCase):
     """Test data format conversion functionality."""
 
     @classmethod
     def setUpClass(cls):
-        """Set up test fixtures."""
-        cls.test_dir = Path(__file__).parent / 'samples'
+        cls.test_dir = Path(__file__).parent
         cls.temp_dir = Path(tempfile.mkdtemp())
         cls.converter = DataConverter()
 
     @classmethod
     def tearDownClass(cls):
-        """Clean up after all tests."""
         if cls.temp_dir.exists():
             shutil.rmtree(cls.temp_dir)
 
     def setUp(self):
-        """Reset temp directory before each test."""
-        for f in self.temp_dir.glob('*'):
+        for f in self.temp_dir.glob("*"):
             if f.is_file():
                 f.unlink()
-        # Restore sample files
-        for ext in ['json', 'csv', 'xml', 'yaml']:
-            src = self.test_dir / f'sample.{ext}'
+        for ext in ["json", "csv", "xml", "yaml"]:
+            src = self.test_dir / f"sample.{ext}"
             if src.exists():
-                shutil.copy(src, self.temp_dir / f'test.{ext}')
+                shutil.copy(src, self.temp_dir / f"sample.{ext}")
 
     def test_json_to_csv_conversion(self):
-        """Test JSON to CSV conversion."""
-        input_file = self.temp_dir / 'sample.json'
-        if not input_file.exists():
-            self.skipTest("Sample JSON file not found")
+        input_file = self.temp_dir / "sample.json"
+        self.assertTrue(input_file.exists(), "Sample JSON file must exist")
 
-        self.converter.convert(str(input_file), 'csv', 'output')
-        output_file = self.temp_dir / 'output.csv'
+        self.converter.convert(str(input_file), "csv", "output")
+        output_file = self.temp_dir / "output.csv"
 
         self.assertTrue(output_file.exists(), "CSV output file should be created")
+        actual = _sha256_text(output_file.read_text(encoding="utf-8"))
+        self.assertEqual(actual, HASH["json_to_csv"],
+                         f"JSON->CSV hash mismatch. ACTUAL: {actual}")
 
     def test_json_to_xml_conversion(self):
-        """Test JSON to XML conversion."""
-        input_file = self.temp_dir / 'sample.json'
-        if not input_file.exists():
-            self.skipTest("Sample JSON file not found")
+        input_file = self.temp_dir / "sample.json"
+        self.assertTrue(input_file.exists(), "Sample JSON file must exist")
 
-        self.converter.convert(str(input_file), 'xml', 'output')
-        output_file = self.temp_dir / 'output.xml'
+        self.converter.convert(input_file, "xml", "output")
+        output_file = self.temp_dir / "output.xml"
 
         self.assertTrue(output_file.exists(), "XML output file should be created")
-
-        content = output_file.read_text(encoding='utf-8')
-        self.assertIn('<?xml', content)
+        content = output_file.read_text(encoding="utf-8")
+        self.assertIn("<?xml", content)
+        actual = _sha256_text(content)
+        self.assertEqual(actual, HASH["json_to_xml"],
+                         f"JSON->XML hash mismatch. ACTUAL: {actual}")
 
     def test_csv_to_json_conversion(self):
-        """Test CSV to JSON conversion."""
-        input_file = self.temp_dir / 'test.csv'
-        if not input_file.exists():
-            self.skipTest("Sample CSV file not found")
+        input_file = self.temp_dir / "sample.csv"
+        self.assertTrue(input_file.exists(), "Sample CSV file must exist")
 
-        self.converter.convert(str(input_file), 'json', 'output')
-        output_file = self.temp_dir / 'output.json'
+        self.converter.convert(str(input_file), "json", "output")
+        output_file = self.temp_dir / "output.json"
 
         self.assertTrue(output_file.exists(), "JSON output file should be created")
-
-        import json
-        with open(output_file, 'r') as f:
-            data = json.load(f)
+        import json as _json
+        with open(output_file, "r") as f:
+            data = _json.load(f)
         self.assertIsInstance(data, list)
         self.assertGreater(len(data), 0)
+        actual = _sha256_text(output_file.read_text(encoding="utf-8"))
+        self.assertEqual(actual, HASH["csv_to_json"],
+                         f"CSV->JSON hash mismatch. ACTUAL: {actual}")
 
     def test_xml_to_json_conversion(self):
-        """Test XML to JSON conversion."""
-        input_file = self.temp_dir / 'test.xml'
-        if not input_file.exists():
-            self.skipTest("Sample XML file not found")
+        input_file = self.temp_dir / "sample.xml"
+        self.assertTrue(input_file.exists(), "Sample XML file must exist")
 
-        self.converter.convert(str(input_file), 'json', 'output')
-        output_file = self.temp_dir / 'output.json'
+        self.converter.convert(str(input_file), "json", "output")
+        output_file = self.temp_dir / "output.json"
 
         self.assertTrue(output_file.exists(), "JSON output file should be created")
+        actual = _sha256_text(output_file.read_text(encoding="utf-8"))
+        self.assertEqual(actual, HASH["xml_to_json"],
+                         f"XML->JSON hash mismatch. ACTUAL: {actual}")
 
     def test_yaml_to_json_conversion(self):
-        """Test YAML to JSON conversion."""
-        input_file = self.temp_dir / 'test.yaml'
-        if not input_file.exists():
-            self.skipTest("Sample YAML file not found")
+        input_file = self.temp_dir / "sample.yaml"
+        self.assertTrue(input_file.exists(), "Sample YAML file must exist")
 
-        self.converter.convert(str(input_file), 'json', 'output')
-        output_file = self.temp_dir / 'output.json'
+        self.converter.convert(str(input_file), "json", "output")
+        output_file = self.temp_dir / "output.json"
 
         self.assertTrue(output_file.exists(), "JSON output file should be created")
+        actual = _sha256_text(output_file.read_text(encoding="utf-8"))
+        self.assertEqual(actual, HASH["yaml_to_json"],
+                         f"YAML->JSON hash mismatch. ACTUAL: {actual}")
 
     def test_json_to_yaml_conversion(self):
-        """Test JSON to YAML conversion."""
-        input_file = self.temp_dir / 'test.json'
-        if not input_file.exists():
-            self.skipTest("Sample JSON file not found")
+        input_file = self.temp_dir / "sample.json"
+        self.assertTrue(input_file.exists(), "Sample JSON file must exist")
 
-        self.converter.convert(str(input_file), 'yaml', 'output')
-        output_file = self.temp_dir / 'output.yaml'
+        self.converter.convert(str(input_file), "yaml", "output")
+        output_file = self.temp_dir / "output.yaml"
 
         self.assertTrue(output_file.exists(), "YAML output file should be created")
-
+        actual = _sha256_text(output_file.read_text(encoding="utf-8"))
+        self.assertEqual(actual, HASH["json_to_yaml"],
+                         f"JSON->YAML hash mismatch. ACTUAL: {actual}")
 
 class TestBatchProcessor(unittest.TestCase):
     """Test batch processing functionality."""
 
     @classmethod
     def setUpClass(cls):
-        """Set up test fixtures."""
-        cls.test_dir = Path(__file__).parent / 'samples'
+        cls.test_dir = Path(__file__).parent
         cls.temp_dir = Path(tempfile.mkdtemp())
         cls.processor = BatchProcessor()
 
     @classmethod
     def tearDownClass(cls):
-        """Clean up after all tests."""
         if cls.temp_dir.exists():
             shutil.rmtree(cls.temp_dir)
 
     def setUp(self):
-        """Create test folder with images."""
-        self.batch_folder = self.temp_dir / 'batch_test'
+        self.batch_folder = self.temp_dir / "batch_test"
         self.batch_folder.mkdir(exist_ok=True)
 
         from PIL import Image
-        for i, color in enumerate(['red', 'green', 'blue']):
-            img = Image.new('RGB', (100, 100), color=color)
-            img.save(self.batch_folder / f'image{i}.png')
+        for i, color in enumerate(["red", "green", "blue"]):
+            img = Image.new("RGB", (100, 100), color=color)
+            img.save(self.batch_folder / f"image{i}.png")
 
     def test_images_to_pdf_batch(self):
-        """Test batch conversion of images to PDF."""
-        try:
-            result = self.processor.convert_folder(str(self.batch_folder), 'pdf')
+        self.processor.convert_folder(str(self.batch_folder), "pdf")
 
-            parent_dir = self.batch_folder.parent
-            pdf_files = list(parent_dir.glob('Combined_images*.pdf'))
+        parent_dir = self.batch_folder.parent
+        pdf_files = list(parent_dir.glob("Combined_images*.pdf"))
 
-            self.assertGreater(len(pdf_files), 0, "PDF file should be created")
-
-            for f in pdf_files:
-                f.unlink()
-        except Exception as e:
-            self.skipTest(f"Batch PDF conversion failed: {e}")
+        self.assertGreater(len(pdf_files), 0, "PDF file should be created")
+        for f in pdf_files:
+            self.assertGreater(f.stat().st_size, 0, "PDF should not be empty")
+            f.unlink()
 
     def test_images_to_gif_batch(self):
-        """Test batch conversion of images to GIF."""
-        try:
-            self.processor.convert_folder(str(self.batch_folder), 'gif')
+        self.processor.convert_folder(str(self.batch_folder), "gif")
 
-            parent_dir = self.batch_folder.parent
-            gif_files = list(parent_dir.glob('Combined_images*.gif'))
+        parent_dir = self.batch_folder.parent
+        gif_files = list(parent_dir.glob("Combined_images*.gif"))
 
-            self.assertGreater(len(gif_files), 0, "GIF file should be created")
-
-            for f in gif_files:
-                f.unlink()
-        except Exception as e:
-            self.skipTest(f"Batch GIF conversion failed: {e}")
-
+        self.assertGreater(len(gif_files), 0, "GIF file should be created")
+        for f in gif_files:
+            self.assertGreater(f.stat().st_size, 0, "GIF should not be empty")
+            f.unlink()
 
 class TestIntegration(unittest.TestCase):
     """Integration tests for complete conversion workflows."""
 
     @classmethod
     def setUpClass(cls):
-        """Set up test fixtures."""
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from converter import FileConverter
-        cls.test_dir = Path(__file__).parent / 'samples'
+        cls.test_dir = Path(__file__).parent
         cls.temp_dir = Path(tempfile.mkdtemp())
         cls.converter = FileConverter()
 
     @classmethod
     def tearDownClass(cls):
-        """Clean up after all tests."""
         if cls.temp_dir.exists():
             shutil.rmtree(cls.temp_dir)
 
     def setUp(self):
-        """Copy sample files to temp directory."""
-        for f in self.temp_dir.glob('*'):
+        for f in self.temp_dir.glob("*"):
             if f.is_file():
                 f.unlink()
-        for src in self.test_dir.glob('*'):
+        for src in self.test_dir.glob("*"):
             if src.is_file():
                 shutil.copy(src, self.temp_dir / src.name)
 
     def test_single_file_conversion(self):
-        """Test single file conversion through main converter."""
-        input_file = self.temp_dir / 'sample.png'
-        if not input_file.exists():
-            self.skipTest("Sample PNG file not found")
+        input_file = self.temp_dir / "sample.png"
+        self.assertTrue(input_file.exists(), "Sample PNG file must exist")
 
-        success, message = self.converter.convert_file(str(input_file), 'jpg')
+        success, message = self.converter.convert_file(str(input_file), "jpg")
 
         self.assertTrue(success, f"Conversion should succeed: {message}")
-        self.assertIn('jpg', message.lower())
+        self.assertIn("jpg", message.lower())
 
-        output_file = self.temp_dir / 'sample.jpg'
+        output_file = self.temp_dir / "sample.jpg"
         self.assertTrue(output_file.exists())
+        actual = _image_pixel_hash(output_file)
+        self.assertEqual(actual, HASH["integration_single"],
+                         f"Integration hash mismatch. ACTUAL: {actual}")
 
     def test_multiple_files_conversion(self):
-        """Test multiple file conversion with progress tracking."""
         from PIL import Image
         test_files = []
-        for i, color in enumerate(['red', 'blue', 'green', 'yellow']):
-            img = Image.new('RGB', (100, 100), color=color)
-            filepath = self.temp_dir / f'multi_{i}.png'
+        for i, color in enumerate(["red", "blue", "green", "yellow"]):
+            img = Image.new("RGB", (100, 100), color=color)
+            filepath = self.temp_dir / f"multi_{i}.png"
             img.save(filepath)
             test_files.append(str(filepath))
 
-        results = self.converter.convert_multiple_files(test_files, 'jpg', show_progress=False)
+        results = self.converter.convert_multiple_files(test_files, "jpg", show_progress=False)
 
         success_count = sum(1 for success, _ in results if success)
-        self.assertEqual(success_count, len(test_files), f"All conversions should succeed: {results}")
+        self.assertEqual(success_count, len(test_files),
+                         f"All conversions should succeed: {results}")
 
         for i in range(len(test_files)):
-            output_file = self.temp_dir / f'multi_{i}.jpg'
+            output_file = self.temp_dir / f"multi_{i}.jpg"
             self.assertTrue(output_file.exists())
+            self.assertGreater(output_file.stat().st_size, 0)
 
     def test_invalid_file_handling(self):
-        """Test handling of invalid files."""
-        fake_file = self.temp_dir / 'nonexistent.png'
+        fake_file = self.temp_dir / "nonexistent.png"
 
-        success, message = self.converter.convert_file(str(fake_file), 'jpg')
+        success, message = self.converter.convert_file(str(fake_file), "jpg")
 
         self.assertFalse(success)
-        self.assertIn('exist', message.lower())
+        self.assertIn("exist", message.lower())
 
     def test_unsupported_format_handling(self):
-        """Test handling of unsupported formats."""
-        fake_file = self.temp_dir / 'test.xyz'
+        fake_file = self.temp_dir / "sample.xyz"
         fake_file.write_text("fake content")
 
-        success, message = self.converter.convert_file(str(fake_file), 'jpg')
+        success, message = self.converter.convert_file(str(fake_file), "jpg")
 
         self.assertFalse(success)
-        self.assertIn('not allowed', message.lower())
-
+        self.assertIn("not allowed", message.lower())
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
