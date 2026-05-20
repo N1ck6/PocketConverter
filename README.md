@@ -15,7 +15,7 @@ It allows users to instantly convert files between various formats without requi
 - **Smart Core**: Single background instance with async task queue (Coming in newer versions)
 - **Notifications**: Completion alerts
 - **Privacy**: 100% offline, no uploads, complete confidentiality
-- **Text Formatting**: Automatically cleans markdown formatting from GPT-generated text and converts mathematical formulas to calculator-friendly format
+- **Text Formatting**: Сleans markdown from GPT-generated text and converts formulas to calculator format
 
 ## Architecture
 
@@ -58,12 +58,6 @@ pip install -r requirements.txt
 ```bash
 # Single file
 python converter.py input.jpg output.png
-
-# Batch folder
-python converter.py --batch ./images --format webp
-
-# Check status
-python converter.py --status
 ```
 
 ### Python API
@@ -93,16 +87,15 @@ Customize settings in `converter_app/utils.py`:
 - Notification preferences
 - Log file location
 
-## New Functionality: GPT Text Support
+##  GPT Text Support
 
-When converting TXT files, the converter now automatically:
-1. **Cleans GPT Markdown Formatting**:
+**Clean GPT Markdown**:
    - Removes heading markers (#, ##, ###)
    - Strips bold and italic formatting
    - Removes code block markers, list markers, quote markers (>)
    - Converts links [text](url) to plain text
 
-2. **Converts Mathematical Formulas** to calculator-friendly format:
+**Convert Formulas**:
    - Square roots: √(x) → (x)^(1/2)
    - Nth roots: ⁿ√(x) → (x)^(1/n)
    - Fractions: ½ → 1/2, ¼ → 1/4, ¾ → 3/4
