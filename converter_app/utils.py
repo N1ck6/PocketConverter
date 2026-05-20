@@ -6,6 +6,8 @@ import sys
 import shutil
 from pathlib import Path
 from win11toast import toast
+from typing import Optional, List, Dict
+import threading
 
 SUPPORTED_EXTENSIONS = [
     'mp4', 'gif', 'txt', 'pdf', 'docx', 'jpg', 'jpeg', 'png', 
@@ -26,6 +28,8 @@ else:
 ICON_PATH = BASE_PATH / 'logo.ico'
 FONT_PATH = BASE_PATH / 'DejaVuSansCondensed.ttf'
 
+_toast_queue: Dict[str, List[str]] = {}
+_toast_lock = threading.Lock()
 
 def check_ffmpeg():
     return shutil.which('ffmpeg') is not None
@@ -39,7 +43,32 @@ def show_toast(title: str, message: str):
     icon=ICON_PATH
     toast(title, message, icon=icon)
     sys.exit()
+    
+def show_toast(title: str, message: str, group: str = 'default'):
+    icon = ICON_PATH
 
+    with _toast_lock:
+        if title not in _toast_queue:
+            _toast_queue[title] = []
+        _toast_queue[title].append(message)
+
+        all_messages = _toast_queue[title]
+
+        if len(all_messages) > 1:
+            completed = sum(1 for m in all_messages if 'success' in m.lower() or 'converted' in m.lower())
+            failed = len(all_messages) - completed
+            grouped_msg = f"Completed: {completed} | Failed: {failed} | Total: {len(all_messages)}"
+            toast(title, grouped_msg, icon=icon, group=group)
+        else:
+            toast(title, message, icon=icon, group=group)
+
+def clear_toast_queue(title: Optional[str] = None):
+    global _toast_queue
+    with _toast_lock:
+        if title:
+            _toast_queue.pop(title, None)
+        else:
+            _toast_queue.clear()
 
 def get_unique_filename(directory: Path, basename: str, extension: str) -> str:
     ext = extension.strip().lstrip('.')

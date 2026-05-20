@@ -8,12 +8,13 @@ It allows users to instantly convert files between various formats without requi
 
 ## Features
 
-- **Images**: JPG, PNG, WEBP, GIF, BMP, TIFF, HEIC, SVG, ICO (favicon)
-- **Documents**: PDF ↔ DOCX ↔ TXT, EPUB ↔ MOBI, Markdown ↔ HTML, PDF Merge/Split
-- **Media**: MP4, AVI, MOV, MKV → GIF, MP3 | GIF → MP4, PNG frames
-- **Data**: JSON ↔ XML ↔ CSV ↔ YAML
-- **Smart Core**: Single background instance with async task queue (Coming in newer versions)
-- **Notifications**: Completion alerts
+- **Images**: JPG, JPEG, PNG, WEBP, GIF, BMP, TIFF, HEIC, HEIF, SVG, ICO (favicon)
+- **Documents**: PDF ↔ DOCX ↔ TXT ↔ MD/MARKDOWN ↔ HTML, PDF Merge/Split, PDF→DOCX
+- **Media & Audio**: MP4 ↔ GIF, Video→Audio (MP3, WAV, FLAC, AAC, OGG), GIF→PNG frames
+- **Data**: JSON ↔ XML ↔ CSV ↔ YAML/YML
+- **Batch Processing**: Folder→PDF (combine images), Folder→GIF (create animation)
+- **Notifications**: Grouped completion alerts via Windows toast
+- **Progress Bar**: Progress for large files or batch conversions
 - **Privacy**: 100% offline, no uploads, complete confidentiality
 - **Text Formatting**: Сleans markdown from GPT-generated text and converts formulas to calculator format
 
@@ -42,14 +43,14 @@ pip install -r requirements.txt
 ```
 
 **FFmpeg** (Required for video/audio):
-- Windows: `choco install ffmpeg`
+- Windows: `choco install ffmpeg` or download from [ffmpeg.org](https://ffmpeg.org/download.html)
 - Mac: `brew install ffmpeg`
-- Linux: `sudo apt install ffmpeg`
+- Linux: `sudo apt install ffmpeg` or `sudo dnf install ffmpeg`
 
 ## Usage
 
-### Context Menu (Only Windows)
-1. Right-click any file/folder in Explorer
+### Context Menu (Windows Only)
+1. Right-click any supported file or folder in Windows Explorer
 2. Select **"Convert to"** → Choose format
 3. Converted file appears in the same directory
 4. Receive notification when complete
@@ -57,7 +58,7 @@ pip install -r requirements.txt
 ### Command Line
 ```bash
 # Single file
-python converter.py input.jpg output.png
+python converter.py input.jpg png
 ```
 
 ### Python API
@@ -65,18 +66,18 @@ python converter.py input.jpg output.png
 from converter_app.image_converter import ImageConverter
 from converter_app.animated_converter import MediaConverter
 
-ImageConverter.convert("photo.heic", "photo.jpg")
-MediaConverter.convert("video.mov", "video.mp4", fps=30)
+ImageConverter.convert("photo.heic", "jpg")
+MediaConverter.convert("video.mov", "mp4", fps=30)
 ```
 
 ## Supported Conversions
 
 | Category | Formats |
 |----------|---------|
-| **Images** | JPG ↔ PNG ↔ WEBP ↔ GIF ↔ BMP ↔ TIFF ↔ HEIC ↔ SVG ↔ ICO |
-| **Documents** | PDF ↔ DOCX ↔ TXT, EPUB ↔ MOBI, MD ↔ HTML |
-| **Media** | MP4 / AVI / MOV / MKV → GIF, MP3 \| GIF → MP4, PNGs |
-| **Data** | JSON ↔ XML ↔ CSV ↔ YAML |
+| **Images** | JPG ↔ JPEG ↔ PNG ↔ WEBP ↔ GIF ↔ BMP ↔ TIFF ↔ HEIC/HEIF ↔ SVG ↔ ICO |
+| **Documents** | PDF ↔ DOCX ↔ TXT ↔ HTML ↔ MD |
+| **Media** | MP4 / AVI / MOV / MKV → GIF, MP3, VAW, FLAC \| GIF → MP4, PNGs |
+| **Data** | JSON ↔ XML ↔ CSV ↔ YAML/YML |
 | **Batch** | Folder → PDF, Folder → GIF |
 
 ##  Configuration
