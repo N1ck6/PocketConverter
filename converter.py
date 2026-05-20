@@ -148,9 +148,7 @@ class FileConverter:
         
         
 if __name__ == "__main__":
-    devnull = open(devnull, 'w')
-    sys.stdout, sys.stderr = devnull, devnull   # Disable console window popping up
-    sys.stdout = open(devnull, 'w') # Progress bar display
+    print(sys.argv)
         
     if len(sys.argv) < 3:
         print("Usage: converter.exe <filepath> <mode>")
@@ -164,8 +162,12 @@ if __name__ == "__main__":
         sys.exit(1)
 
     converter = FileConverter()
-
+    print(filepaths)
+    exit()
     if len(filepaths) == 1:
+        devnull = open(devnull, 'w')
+        sys.stdout, sys.stderr = devnull, devnull   # Disable console window popping up
+        
         success, message = converter.convert_file(filepaths[0], mode)
         if success:
             show_toast("Conversion complete", message)

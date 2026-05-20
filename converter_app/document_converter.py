@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from converter_app.utils import show_toast, FONT_PATH
+import xml.etree.ElementTree as ET
 
 class DocumentConverter:
     SUPPORTED_EXTENSIONS = {'txt', 'pdf', 'docx', 'md', 'markdown', 'html', 'rtf', 'odt', 'epub'}
@@ -111,7 +112,8 @@ class DocumentConverter:
             elif line.startswith('## '): doc.add_heading(line[3:], level=2)
             elif line.startswith('### '): doc.add_heading(line[4:], level=3)
             elif line.strip(): doc.add_paragraph(line)
-        doc.save(str(out.with_suffix('.docx')))
+            
+        self._save_docx(doc, out)
 
     def _convert_from_html(self, filepath: str, mode: str, new_name: str) -> None:
         from bs4 import BeautifulSoup
@@ -144,8 +146,102 @@ class DocumentConverter:
 
         doc = Document()
         doc.add_paragraph(text)
-        doc.save(str(out.with_suffix('.docx')))
+        self._save_docx(doc, out)
+        
+    def _repackage_clean_docx(self, src_path: Path, dst_path: Path) -> None: # Repackage docx, removing thumbnail/customXml bloat
+        import zipfile
 
+        ESSENTIAL_FILES = {
+            '[Content_Types].xml',
+            '_rels/.rels',
+            'word/document.xml',
+            'word/_rels/document.xml.rels',
+            'word/styles.xml',
+            'word/settings.xml',
+            'word/webSettings.xml',
+            'word/fontTable.xml',
+            'word/theme/theme1.xml',
+            'docProps/core.xml',
+            'docProps/app.xml',
+        }
+
+        with zipfile.ZipFile(src_path, 'r') as src_z:
+            with zipfile.ZipFile(dst_path, 'w', zipfile.ZIP_DEFLATED) as dst_z:
+                for item in src_z.infolist():
+                    if item.filename in ESSENTIAL_FILES:
+                        data = src_z.read(item.filename)
+
+                        # Fix _rels/.rels: remove thumbnail relationship
+                        if item.filename == '_rels/.rels':
+                            data = self._remove_thumbnail_rels(data)
+
+                        # Fix [Content_Types].xml: remove customXml/thumbnail entries
+                        if item.filename == '[Content_Types].xml':
+                            data = self._clean_content_types(data)
+
+                        # Fix word/_rels/document.xml.rels: remove customXml/numbering/stylesWithEffects
+                        if item.filename == 'word/_rels/document.xml.rels':
+                            data = self._clean_document_rels(data)
+
+                        dst_z.writestr(item, data)
+                        
+    def _remove_thumbnail_rels(self, rels_xml: bytes) -> bytes: 
+        root = ET.fromstring(rels_xml)
+        ns = {'': 'http://schemas.openxmlformats.org/package/2006/relationships'}
+        ET.register_namespace('', 'http://schemas.openxmlformats.org/package/2006/relationships')
+
+        for rel in root.findall('Relationship', ns):
+            rel_type = rel.get('Type', '')
+            if 'thumbnail' in rel_type.lower():
+                root.remove(rel)
+
+        return ET.tostring(root, encoding='UTF-8', xml_declaration=True)
+
+    def _clean_content_types(self, ct_xml: bytes) -> bytes:
+        root = ET.fromstring(ct_xml)
+        ET.register_namespace('', 'http://schemas.openxmlformats.org/package/2006/content-types')
+
+        for elem in list(root):
+            part_name = elem.get('PartName', '')
+            ext = elem.get('Extension', '')
+            if ('customXml' in part_name or 
+                'thumbnail' in part_name.lower() or
+                'stylesWithEffects' in part_name or
+                'numbering' in part_name):
+                root.remove(elem)
+            if ext.lower() == 'jpeg':
+                root.remove(elem)
+
+        return ET.tostring(root, encoding='UTF-8', xml_declaration=True)
+
+    def _clean_document_rels(self, rels_xml: bytes) -> bytes:
+        root = ET.fromstring(rels_xml)
+        ns = {'': 'http://schemas.openxmlformats.org/package/2006/relationships'}
+        ET.register_namespace('', 'http://schemas.openxmlformats.org/package/2006/relationships')
+
+        for rel in list(root.findall('Relationship', ns)):
+            rel_type = rel.get('Type', '').lower()
+            target = rel.get('Target', '').lower()
+            if ('customxml' in rel_type or
+                'numbering' in rel_type or
+                'styleswitheffects' in rel_type or
+                'customxml' in target or
+                'numbering' in target or
+                'styleswitheffects' in target):
+                root.remove(rel)
+
+        return ET.tostring(root, encoding='UTF-8', xml_declaration=True)
+
+    def _save_docx(self, doc, out: Path) -> None:
+        temp_path = out.with_suffix('.tmp.docx')
+        doc.save(str(temp_path))
+
+        clean_path = out.with_suffix('.docx')
+        self._repackage_clean_docx(temp_path, clean_path)
+
+        if temp_path.exists():
+            temp_path.unlink()
+    
     def _write_html(self, out: Path, text: str) -> None:
         (out.with_suffix('.html')).write_text(
             f"<!DOCTYPE html>\n<html>\n<head><meta charset='utf-8'></head>\n<body>\n{text}\n</body>\n</html>",

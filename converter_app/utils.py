@@ -5,9 +5,10 @@ Utility functions and constants.
 import sys
 import shutil
 from pathlib import Path
-from win11toast import toast
+from win11toast import toast, toast_async
 from typing import Optional, List, Dict
 import threading
+import asyncio
 
 SUPPORTED_EXTENSIONS = [
     'mp4', 'gif', 'txt', 'pdf', 'docx', 'jpg', 'jpeg', 'png', 
@@ -38,14 +39,8 @@ def check_ffmpeg():
 def get_ffmpeg_help():
     return "FFmpeg is required for audio/video edit. Download from: https://ffmpeg.org/download.html"
 
-
-def show_toast(title: str, message: str):
-    icon=ICON_PATH
-    toast(title, message, icon=icon)
-    sys.exit()
-    
 def show_toast(title: str, message: str, group: str = 'default'):
-    icon = ICON_PATH
+    icon = str(ICON_PATH.resolve())
 
     with _toast_lock:
         if title not in _toast_queue:
@@ -58,9 +53,43 @@ def show_toast(title: str, message: str, group: str = 'default'):
             completed = sum(1 for m in all_messages if 'success' in m.lower() or 'converted' in m.lower())
             failed = len(all_messages) - completed
             grouped_msg = f"Completed: {completed} | Failed: {failed} | Total: {len(all_messages)}"
-            toast(title, grouped_msg, icon=icon, group=group)
+            _safe_toast(title, grouped_msg, icon=icon, group=group)
         else:
+            _safe_toast(title, message, icon=icon, group=group)
+
+def _safe_toast(title: str, message: str, icon: str, group: str):
+    if toast is None:
+        print(f"[Toast: {title}] {message}")
+        return
+
+    try:
+        toast(title, message, icon=icon, group=group)
+    except RuntimeError as e:
+        err = str(e).lower()
+        if "no running event loop" in err or "cannot be called from a running event loop" in err:
+            try: # existing event loop
+                import nest_asyncio
+                nest_asyncio.apply()
+                toast(title, message, icon=icon, group=group)
+            except ImportError:
+                # nest_asyncio not installed — schedule on existing loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.run_coroutine_threadsafe(
+                        toast_async(title, message, icon=icon, group=group), loop)
+                except RuntimeError:
+                    print(f"[Toast: {title}] {message}")
+        else:
+            raise
+    except AttributeError as e:
+        if "items" in str(e):
+            if isinstance(icon, Path):
+                icon = str(icon.resolve())
             toast(title, message, icon=icon, group=group)
+        else:
+            raise
+    except Exception:
+        print(f"[Toast: {title}] {message}")
 
 def clear_toast_queue(title: Optional[str] = None):
     global _toast_queue
