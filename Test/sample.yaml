@@ -1,0 +1,10 @@
+name: Test YAML
+version: 2.0
+settings:
+  debug: true
+  timeout: 30
+items:
+  - id: 1
+    label: First
+  - id: 2
+    label: Second

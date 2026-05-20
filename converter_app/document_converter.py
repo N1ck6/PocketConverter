@@ -5,9 +5,30 @@ from converter_app.utils import show_toast, FONT_PATH
 class DocumentConverter:
     SUPPORTED_EXTENSIONS = {'txt', 'pdf', 'docx', 'md', 'markdown', 'html', 'rtf', 'odt', 'epub'}
 
-    _RE_MARKDOWN_CLEAN = re.compile(r'(?m)^(#+\s*|[*_`~]|> |\s+-\s+)')
-    _RE_MATH_SQRT = re.compile(r'\\sqrt(?:\[(\d+)\])?[\(\{]([^)\}]+)[\)\}]')
-    _RE_MATH_FRAC = re.compile(r'\\frac\{([^}]+)\}\{([^}]+)\}')
+    _UNICODE_FRACTIONS = {
+        '½': '1/2', '¼': '1/4', '¾': '3/4',
+        '⅓': '1/3', '⅔': '2/3', '⅕': '1/5',
+        '⅖': '2/5', '⅗': '3/5', '⅘': '4/5',
+        '⅙': '1/6', '⅚': '5/6', '⅛': '1/8',
+        '⅜': '3/8', '⅝': '5/8', '⅞': '7/8',
+        '⅑': '1/9', '⅒': '1/10', '⅟': '1/',
+    }
+    
+    _RE_MARKDOWN_CLEAN = re.compile(
+        r'(?m)^#{1,6}\s+|'  # Headings
+        r'(?<!\\)\*\*(.+?)\*\*|'  # Bold **
+        r'(?<!\\)__(.+?)__|'  # Bold __
+        r'(?<!\\)\*(.+?)\*|'  # Italic *
+        r'(?<!\\)_(.+?)_|'  # Italic _
+        r'`(.+?)`|'  # Inline code
+        r'\[(.+?)\]\(.+?\)|'  # Links [text](url)
+        r'^>\s+|'  # Quote markers
+        r'^[-*]\s+|'  # List markers
+        r'~~(.+?)~~'  # Strikethrough
+    )
+    _RE_SQRT_N = re.compile(r'\\sqrt\[(\d+)\]\{([^}]+)\}')
+    _RE_SQRT   = re.compile(r'\\sqrt\{([^}]+)\}')
+    _RE_FRAC   = re.compile(r'\\frac\{([^}]+)\}\{([^}]+)\}')
     _RE_HTML_TAGS = re.compile(r'<[^>]+>')
     _RE_WHITESPACE = re.compile(r'\n{3,}')
 
@@ -21,7 +42,9 @@ class DocumentConverter:
             'markdown': self._convert_from_markdown, 'html': self._convert_from_html
         }
         handler = handlers.get(ext)
-        if not handler: show_toast("Error", f"Source format .{ext} not supported")
+        if not handler:
+            show_toast("Error", f"Source format .{ext} not supported")
+            return
         handler(filepath, mode, new_name)
 
     def _convert_from_txt(self, filepath: str, mode: str, new_name: str) -> None:
@@ -39,7 +62,7 @@ class DocumentConverter:
         doc = Document(filepath)
         text = '\n'.join(p.text for p in doc.paragraphs)
         out = Path(filepath).parent / new_name
-        
+
         if mode == 'txt': out.with_suffix('.txt').write_text(text, encoding='utf-8')
         elif mode == 'pdf': self._write_pdf(out, text)
         elif mode in ('md', 'markdown'): out.with_suffix('.md').write_text(text, encoding='utf-8')
@@ -49,7 +72,8 @@ class DocumentConverter:
         from pymupdf import open as pdfopen
 
         doc = pdfopen(filepath)
-        text = ''.join(page.get_text('text') for page in doc); doc.close()
+        text = ''.join(page.get_text('text') for page in doc)
+        doc.close()
         out = Path(filepath).parent / new_name
         
         if mode == 'txt': out.with_suffix('.txt').write_text(text, encoding='utf-8')
@@ -74,7 +98,7 @@ class DocumentConverter:
         if mode == 'pdf': self._write_pdf(out, self._html_to_text(markdown.markdown(md_text)))
         elif mode == 'html': (out.with_suffix('.html')).write_text(self._wrap_html(markdown.markdown(md_text, extensions=['extra', 'codehilite']), Path(filepath).stem), encoding='utf-8')
         elif mode == 'docx': self._markdown_to_docx(md_text, out)
-        elif mode == 'txt': out.with_suffix('.txt').write_text(self._RE_MARKDOWN_CLEAN.sub('', md_text), encoding='utf-8')
+        elif mode == 'txt': out.with_suffix('.txt').write_text(self._clean_markdown(md_text), encoding='utf-8')
         else: show_toast("Error", f"Target format .{mode} not supported")
 
     def _markdown_to_docx(self, text: str, out: Path) -> None:
@@ -113,7 +137,7 @@ class DocumentConverter:
 
         for line in text.split('\n'):
             for wrapped in wrap(line, 90) or ['']: pdf.cell(0, 4.8, wrapped, ln=1)
-        pdf.output(str(out.with_suffix('.pdf')), 'F')
+        pdf.output(str(out.with_suffix('.pdf')))
 
     def _write_docx(self, out: Path, text: str) -> None:
         from docx import Document
@@ -123,7 +147,8 @@ class DocumentConverter:
         doc.save(str(out.with_suffix('.docx')))
 
     def _write_html(self, out: Path, text: str) -> None:
-        (out.with_suffix('.html')).write_text(f"<!DOCTYPE html><html><head><meta charset='utf-8'></head><body><pre>{text}</pre></body></html>",
+        (out.with_suffix('.html')).write_text(
+            f"<!DOCTYPE html>\n<html>\n<head><meta charset='utf-8'></head>\n<body>\n{text}\n</body>\n</html>",
             encoding='utf-8')
 
     def _html_to_text(self, html: str) -> str:
@@ -137,32 +162,62 @@ class DocumentConverter:
                <body>{body}</body></html>"""
 
     def _process_txt_with_gpt_support(self, filepath: str) -> str:
-        content = Path(filepath).read_text(encoding='utf-8')
-        cleaned = self._RE_MARKDOWN_CLEAN.sub('', content)
+        try:
+            if Path(filepath).exists():
+                content = Path(filepath).read_text(encoding='utf-8')
+            else:
+                content = filepath
+        except (OSError, ValueError):
+            content = filepath
+        cleaned = self._clean_markdown(content)
         cleaned = self._RE_WHITESPACE.sub('\n\n', cleaned)
         return self._convert_formulas(cleaned).strip()
+    
+    def _clean_markdown(self, text: str) -> str:
+        """Remove markdown syntax while preserving content."""
+        def _replace(match):
+            if match.lastindex:
+                for i in range(1, match.lastindex + 1):
+                    group = match.group(i)
+                    if group is not None:
+                        return group
+            return ''
+        return self._RE_MARKDOWN_CLEAN.sub(_replace, text)
 
     def _convert_formulas(self, text: str) -> str:
-        text = self._RE_MATH_SQRT.sub(lambda m: f"({m.group(2)})^(1/{m.group(1) or 2})", text)
-        text = self._RE_MATH_FRAC.sub(r'(\1)/(\2)', text)
-        text = text.replace('×', '*').replace('÷', '/').replace('−', '-').replace('±', '+/-')
-        text = text.replace('π', 'pi').replace('∞', 'inf')
-        return re.sub(r'\\(sin|cos|tan|log|ln|exp)', r'\1', text)
+        for unicode_frac, ascii_frac in self._UNICODE_FRACTIONS.items(): # unicode fractions
+            text = text.replace(unicode_frac, ascii_frac)
+        text = re.sub(r'³√\(([^)]+)\)', r'(\1)^(1/3)', text) # cube root
+        text = re.sub(r'√\(([^)]+)\)', r'(\1)^(1/2)', text) # square root with parentheses
+        text = re.sub(r'√(\d+)', r'(\1)^(1/2)', text) # square root without parentheses
+        text = self._RE_SQRT_N.sub(r'(\2)^(1/\1)', text) # sqrt with index
+        text = self._RE_SQRT.sub(r'(\1)^(1/2)', text) # sqrt
+        text = self._RE_FRAC.sub(r'(\1)/(\2)', text) # fractions
+        text = (text.replace('×', '*').replace('÷', '/') # math symbols
+                .replace('−', '-').replace('±', '+/-')
+                .replace('π', 'pi').replace('∞', 'inf')
+                .replace('\\left(', '(').replace('\\right)', ')'))
+        text = re.sub(r'\\(sin|cos|tan|log|ln|exp)', r'\1', text)
+
+        return text
 
     @staticmethod
     def merge_pdfs(pdf_files: list[str], output_path: str) -> None:
         from pypdf import PdfMerger
         
         merger = PdfMerger()
-        for f in pdf_files: merger.append(f)
-        merger.write(output_path); merger.close()
+        for f in pdf_files:
+            merger.append(f)
+        merger.write(output_path)
+        merger.close()
 
     @staticmethod
     def split_pdf(pdf_path: str, output_folder: str, pages_per_file: int = 1) -> None:
         from pypdf import PdfReader, PdfWriter
 
         reader = PdfReader(pdf_path)
-        out_dir = Path(output_folder); out_dir.mkdir(exist_ok=True)
+        out_dir = Path(output_folder)
+        out_dir.mkdir(exist_ok=True)
         total = len(reader.pages)
 
         for i in range(0, total, pages_per_file):
