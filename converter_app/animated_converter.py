@@ -40,7 +40,7 @@ class AnimatedConverter:
         else:
             show_toast("Error", f"Unsupported source format .{ext}")
 
-    def _route_mp4(self, fp: str, mode: str, out_path: Path, ab: str, vb: str, fps: int) -> None:
+    def _route_mp4(self, fp: str, mode: str, out_path: Path, ab: str, fps: int) -> None:
         if mode == 'gif': self._video_to_gif(fp, out_path, fps)
         elif mode in self.AUDIO_CODECS: self._video_to_audio(fp, out_path, ab, mode)
         else: show_toast("Error", f"Target format '{mode}' not supported for MP4")
@@ -63,7 +63,7 @@ class AnimatedConverter:
         with VideoFileClip(fp) as clip:
             clip.write_gif(str(out_path), fps=fps, logger=None)
 
-    def _video_to_audio(self, fp: str, out_path: Path, ab: str, fmt: str) -> None:
+    def _video_to_audio(self, fp: str, out_path: Path, ab: str) -> None:
         with VideoFileClip(fp) as clip:
             clip.audio.write_audiofile(str(out_path), bitrate=ab, logger=None)
 

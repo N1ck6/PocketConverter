@@ -5,13 +5,12 @@ import winreg
 from win11toast import toast
 from platform import system
 
-# Resolve paths for frozen exe vs source
 base_path = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(__file__)
 icon_dir = os.path.join(base_path, 'logo.ico')
 EXE_PATH = r"C:\Program Files\PocketConverter\converter.exe"
 ICON_PATH = r"C:\Program Files\PocketConverter\small.ico"
 
-# Dynamic source -> target mapping extracted from converter classes
+# source -> target mapping
 CONVERSION_MAP = {
     # Images
     'bmp': ['jpg', 'png', 'webp', 'ico'],
@@ -21,7 +20,7 @@ CONVERSION_MAP = {
     'jpeg': ['jpg', 'png', 'webp', 'ico'],
     'jpg': ['png', 'webp', 'ico'],
     'png': ['jpg', 'webp', 'ico'],
-    'svg': ['png', 'jpg', 'webp', 'ico'],
+    'svg': ['png', 'jpg', 'webp', 'md'],
     'tiff': ['jpg', 'png', 'webp', 'ico'],
     'webp': ['jpg', 'png', 'ico'],
     # Documents
@@ -33,7 +32,7 @@ CONVERSION_MAP = {
     'txt': ['pdf', 'docx', 'md', 'html'],
     # Animated & Audio
     'gif': ['mp4', 'png', 'pngs'],
-    'mp4': ['gif', 'mp3', 'wav', 'flac', 'aac', 'ogg'],
+    'mp4': ['gif', 'mp3', 'wav', 'flac'],
     'aac': ['mp3', 'wav', 'flac', 'ogg'],
     'flac': ['mp3', 'wav', 'aac', 'ogg'],
     'mp3': ['wav', 'flac', 'aac', 'ogg'],
@@ -69,22 +68,23 @@ def delete_key_recursive(hkey, path):
         pass
 
 def add_context_menu():
-    # File extensions
-    for ext, targets in CONVERSION_MAP.items():
+    for ext, targets in CONVERSION_MAP.items():# File extensions
         key_path = fr"Software\Classes\SystemFileAssociations\.{ext}\shell\PocketConverter"
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
             winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, "Convert to")
             winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, ICON_PATH)
             winreg.SetValueEx(key, "SubCommands", 0, winreg.REG_SZ, "")
             winreg.SetValueEx(key, "MultiSelectModel", 0, winreg.REG_SZ, "Single")
+        
+        shell_path = f"{key_path}\\shell"
+        winreg.CreateKey(winreg.HKEY_CURRENT_USER, shell_path)
 
         for i, target in enumerate(targets):
-            subkey_path = f"{key_path}\\shell\\sub_{i}"
+            subkey_path = f"{key_path}\\shell\\sub_one_{i}"
             cmd_path = f"{subkey_path}\\command"
 
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, subkey_path) as key:
                 winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, target)
-
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, cmd_path) as key:
                 winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f'"{EXE_PATH}" "%1" {target}')
 
@@ -96,13 +96,15 @@ def add_context_menu():
         winreg.SetValueEx(key, "SubCommands", 0, winreg.REG_SZ, "")
         winreg.SetValueEx(key, "MultiSelectModel", 0, winreg.REG_SZ, "Single")
 
+    dir_shell_path = f"{dir_key_path}\\shell"
+    winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, dir_shell_path)
+    
     for i, target in enumerate(['pdf', 'gif']):
-        subkey_path = f"{dir_key_path}\\shell\\sub_{i}"
+        subkey_path = f"{dir_key_path}\\shell\\sub_one_{i}"
         cmd_path = f"{subkey_path}\\command"
 
         with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, subkey_path) as key:
-            winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, f"folder{target}")
-
+            winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, target)
         with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, cmd_path) as key:
             winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f'"{EXE_PATH}" "%V" folder{target}')
 
