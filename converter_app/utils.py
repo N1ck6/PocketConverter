@@ -54,10 +54,9 @@ def get_unique_filename(directory: Path, basename: str, extension: str) -> str:
 
 def log_error(ext, target):
     import os, traceback
-    if os.path.isfile(LOG_FILE_PATH) and logs_input and ext and target:
-        logs_input = f"Input! File: {ext}, Mode: {target}\n"
-        with open(LOG_FILE_PATH, 'a') as log_file:  # Logs file to check what might have caused errors
-            log_file.write(f"Error! Input: {logs_input} File: {ext}, Mode: {target}\n")
+    if os.path.isfile(LOG_FILE_PATH) and ext and target:
+        with open(LOG_FILE_PATH, 'a') as log_file:  # Logs file to check what might have caused an error
+            log_file.write(f"Error! Input: File: {ext}, Mode: {target}\n")
             log_file.write("Error Output:\n")
             log_file.write(traceback.format_exc())
             log_file.write('---------------------------------------------------------------------\n')

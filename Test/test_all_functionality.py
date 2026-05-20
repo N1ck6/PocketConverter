@@ -1,6 +1,5 @@
 import unittest
 import sys
-import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -14,47 +13,47 @@ class TestDocumentConverter(unittest.TestCase):
         self.converter = DocumentConverter()
         self.test_dir = Path(__file__).parent
 
-    def test_clean_gpt_markdown_removes_headings(self):
+    def test_process_txt_with_gpt_support_removes_headings(self):
         text = "# Heading\n## Subheading\n### Deep heading"
         expected = "Heading\nSubheading\nDeep heading"
-        result = self.converter._clean_gpt_markdown(text)
+        result = self.converter._process_txt_with_gpt_support(text)
         self.assertEqual(result, expected)
 
-    def test_clean_gpt_markdown_removes_bold(self):
+    def test_process_txt_with_gpt_support_removes_bold(self):
         text = "This is **bold** text"
         expected = "This is bold text"
-        result = self.converter._clean_gpt_markdown(text)
+        result = self.converter._process_txt_with_gpt_support(text)
         self.assertEqual(result, expected)
 
-    def test_clean_gpt_markdown_removes_italic(self):
+    def test_process_txt_with_gpt_support_removes_italic(self):
         text = "This is *italic* text"
         expected = "This is italic text"
-        result = self.converter._clean_gpt_markdown(text)
+        result = self.converter._process_txt_with_gpt_support(text)
         self.assertEqual(result, expected)
 
-    def test_clean_gpt_markdown_removes_code_blocks(self):
+    def test_process_txt_with_gpt_support_removes_code_blocks(self):
         text = "Use `code` for inline"
         expected = "Use code for inline"
-        result = self.converter._clean_gpt_markdown(text)
+        result = self.converter._process_txt_with_gpt_support(text)
         self.assertEqual(result, expected)
 
-    def test_clean_gpt_markdown_removes_links(self):
+    def test_process_txt_with_gpt_support_removes_links(self):
         text = "Visit [Google](https://google.com)"
         expected = "Visit Google"
-        result = self.converter._clean_gpt_markdown(text)
+        result = self.converter._process_txt_with_gpt_support(text)
         self.assertEqual(result, expected)
 
-    def test_clean_gpt_markdown_removes_list_markers(self):
+    def test_process_txt_with_gpt_support_removes_list_markers(self):
         text = "- Item 1\n* Item 2"
-        result = self.converter._clean_gpt_markdown(text)
+        result = self.converter._process_txt_with_gpt_support(text)
         self.assertIn("Item 1", result)
         self.assertIn("Item 2", result)
         self.assertNotIn("- ", result)
         self.assertNotIn("* ", result)
 
-    def test_clean_gpt_markdown_removes_quote_markers(self):
+    def test_process_txt_with_gpt_support_removes_quote_markers(self):
         text = "> This is a quote"
-        result = self.converter._clean_gpt_markdown(text)
+        result = self.converter._process_txt_with_gpt_support(text)
         self.assertEqual(result, "This is a quote")
 
     def test_convert_formulas_square_root_parentheses(self):

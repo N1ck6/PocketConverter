@@ -58,9 +58,7 @@ class DocumentConverter:
         else: show_toast("Error", f"Target format .{mode} not supported")
 
     def _pdf_to_docx(self, filepath: str, new_name: str) -> None:
-        try:
-            from pdf2docx import Converter
-        except ImportError: raise DependencyError("pdf2docx required")
+        from pdf2docx import Converter
         
         out = Path(filepath).parent / f"{new_name}.docx"
         cv = Converter(filepath)

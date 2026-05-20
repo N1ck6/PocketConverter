@@ -30,6 +30,7 @@ class FileConverter:
             if not path.is_dir():
                 show_toast("Folder doesn't exist", "How and Why?")
             self.batch_processor.convert_folder(filepath, mode)
+            sys.exit()
 
         if not path.is_file():
             show_toast("File doesn't exist", "How and Why?")
@@ -48,7 +49,7 @@ class FileConverter:
         
 if __name__ == "__main__":
     devnull = open(devnull, 'w')
-    sys.stdout, sys.stderr = devnull, devnull
+    sys.stdout, sys.stderr = devnull, devnull   # Disable console window popping up
         
     if len(sys.argv) != 3:
         sys.exit("Usage: converter.exe <filepath> <mode>")

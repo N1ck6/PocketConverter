@@ -150,17 +150,22 @@ class BatchProcessor:
         pdf.output(out_dir / f"{fn}.pdf")
         return fn
     
-    def _images_to_gif(self, folder: str) -> str:
+    def _images_to_gif(self, folder: str) -> None:
         fp = Path(folder); out_dir = fp.parent
         exts = {'png', 'jpg', 'jpeg', 'bmp', 'webp'}
         files = sorted(f for f in os.listdir(folder) if f.rsplit('.', 1)[-1] in exts)
         if not files: show_toast("Error", "No supported images in folder")
         
+        import imageio.v2 as imageio
         if self.progress_callback: self.progress_callback(0, len(files), "Loading...")
-        imgs = [Image.open(fp / f).convert('RGB') for f in files]
-        mw, mh = min(i.width for i in imgs), min(i.height for i in imgs)
-        imgs = [i.resize((mw, mh)) for i in imgs]
+            
+        first_img = Image.open(fp / files[0]).convert('RGB')
+        mw, mh = first_img.size
         fn = get_unique_filename(out_dir, 'Combined_images', 'gif')
         out = out_dir / f"{fn}.gif"
-        imgs[0].save(out, save_all=True, append_images=imgs[1:], duration=25*len(imgs), loop=0)
-        return fn
+        
+        with imageio.get_writer(out, mode='I', duration=25*len(files), loop=0) as writer: # No stashing all imgs in RAM at once
+            for f in files:
+                img = Image.open(fp / f).convert('RGB').resize((mw, mh))
+                writer.append_data(img)
+                img.close()

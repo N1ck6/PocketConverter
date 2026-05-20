@@ -12,8 +12,8 @@ It allows users to instantly convert files between various formats without requi
 - **Documents**: PDF ↔ DOCX ↔ TXT, EPUB ↔ MOBI, Markdown ↔ HTML, PDF Merge/Split
 - **Media**: MP4, AVI, MOV, MKV → GIF, MP3 | GIF → MP4, PNG frames
 - **Data**: JSON ↔ XML ↔ CSV ↔ YAML
-- **Smart Core**: Single background instance with async task queue
-- **Notifications**: Real-time progress & completion alerts
+- **Smart Core**: Single background instance with async task queue (Coming in newer versions)
+- **Notifications**: Completion alerts
 - **Privacy**: 100% offline, no uploads, complete confidentiality
 - **Text Formatting**: Automatically cleans markdown formatting from GPT-generated text and converts mathematical formulas to calculator-friendly format
 
