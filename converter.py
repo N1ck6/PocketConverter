@@ -148,22 +148,18 @@ class FileConverter:
         
         
 if __name__ == "__main__":
-    print(sys.argv)
-        
     if len(sys.argv) < 3:
         print("Usage: converter.exe <filepath> <mode>")
-        sys.exit(1)
+        quit()
     
     mode = sys.argv[-1]
     filepaths = sys.argv[1:-1]
 
     if not filepaths:
         print("Error: No input files provided")
-        sys.exit(1)
+        quit()
 
     converter = FileConverter()
-    print(filepaths)
-    exit()
     if len(filepaths) == 1:
         devnull = open(devnull, 'w')
         sys.stdout, sys.stderr = devnull, devnull   # Disable console window popping up

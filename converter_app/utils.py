@@ -23,12 +23,12 @@ DEFAULT_AUDIO_BITRATE = '192k'
 DEFAULT_VIDEO_BITRATE = '2000k'
 
 if getattr(sys, 'frozen', False):
-    BASE_PATH = sys._MEIPASS
+    BASE_PATH = Path(sys._MEIPASS)
 else:
     BASE_PATH = Path(__file__).parent.parent
 
-ICON_PATH = BASE_PATH / 'logo.ico'
-FONT_PATH = BASE_PATH / 'DejaVuSansCondensed.ttf'
+ICON_PATH = BASE_PATH / "logo.ico"
+FONT_PATH = BASE_PATH / "DejaVuSansCondensed.ttf"
 
 _toast_queue: Dict[str, List[str]] = {}
 _toast_lock = threading.Lock()
