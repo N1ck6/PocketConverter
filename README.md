@@ -3,49 +3,24 @@
 [![Release](https://img.shields.io/github/v/release/N1ck6/PocketConverter)](https://github.com/N1ck6/PocketConverter/releases/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-File Converter is a lightweight but powerful file conversion tool that integrates directly into the Windows context menu. 
+File Converter is a lightweight but powerful file conversion tool that integrates directly into the Windows context menu. <br>
 It allows users to instantly convert files between various formats without requiring an internet connection, ensuring privacy and speed.
+
+## Supported Conversions
+| Category | Formats |
+|----------|---------|
+| **Images** | JPG ↔ JPEG ↔ PNG ↔ WEBP ↔ GIF ↔ BMP ↔ TIFF ↔ HEIC/HEIF ↔ SVG ↔ ICO |
+| **Documents** | PDF ↔ DOCX ↔ TXT ↔ HTML ↔ MD |
+| **Media** | MP4 / AVI / MOV / MKV → GIF, MP3, VAW, FLAC \| GIF → MP4, PNGs |
+| **Data** | JSON ↔ XML ↔ CSV ↔ YAML/YML |
+| **Batch** | Folder → PDF, Folder → GIF |
 
 ## Features
 
-- **Images**: JPG, JPEG, PNG, WEBP, GIF, BMP, TIFF, HEIC, HEIF, SVG, ICO (favicon)
-- **Documents**: PDF ↔ DOCX ↔ TXT ↔ MD/MARKDOWN ↔ HTML, PDF Merge/Split, PDF→DOCX
-- **Media & Audio**: MP4 ↔ GIF, Video→Audio (MP3, WAV, FLAC, AAC, OGG), GIF→PNG frames
-- **Data**: JSON ↔ XML ↔ CSV ↔ YAML/YML
-- **Batch Processing**: Folder→PDF (combine images), Folder→GIF (create animation)
-- **Notifications**: Grouped completion alerts via Windows toast
 - **Progress Bar**: Progress for large files or batch conversions
 - **Privacy**: 100% offline, no uploads, complete confidentiality
+- **Notifications**: Grouped completion alerts via Windows toast
 - **Text Formatting**: Сleans markdown from GPT-generated text and converts formulas to calculator format
-
-## Architecture
-
-```
-converter.py                  # Main entry & context menu handler
-converter_app/
-├── utils.py                  # Utilities, constants
-├── image_converter.py        # Image processing
-├── document_converter.py     # Document tools with GPT's text and formulas support
-├── animated_converter.py     # Audio/Video conversion
-└── folder_converter.py       # Batch processing
-```
-
-## Quick Start
-
-### Install from Release
-Download the latest executable: **[Releases Page](https://github.com/N1ck6/PocketConverter/releases/)**
-
-### Manual Setup
-```bash
-git clone https://github.com/N1ck6/PocketConverter.git
-cd PocketConverter
-pip install -r requirements.txt
-```
-
-**FFmpeg** (Required for video/audio):
-- Windows: `choco install ffmpeg` or download from [ffmpeg.org](https://ffmpeg.org/download.html)
-- Mac: `brew install ffmpeg`
-- Linux: `sudo apt install ffmpeg` or `sudo dnf install ffmpeg`
 
 ## Usage
 
@@ -55,41 +30,20 @@ pip install -r requirements.txt
 3. Converted file appears in the same directory
 4. Receive notification when complete
 
-### Command Line
+## Quick Start
+
+### 1) Run Installer
+Download from latest **[Release](https://github.com/N1ck6/PocketConverter/releases/)**
+
+### 2) Manual Setup
 ```bash
-# Single file
-python converter.py input.jpg png
-# Always quote file paths that contain (, ), &, |, ^, %, or spaces.
-python converter.py "input file(1).jpg" png
+git clone https://github.com/N1ck6/PocketConverter.git
+cd PocketConverter
+pip install -r requirements.txt
+# Use pyinstaller to compile into .exe:
+# pyinstraller --onefile --noconsole --icon=small,ico --add-data "logo.ico;." --add-data "DejaVuSansCondensed.ttf;." --add-data "converter_app;converter_app" converter.py
+# Place in subfolder "Pocket Converter" in "Program Files" folder
 ```
-
-
-### Python API
-```python
-from converter_app.image_converter import ImageConverter
-from converter_app.animated_converter import MediaConverter
-
-ImageConverter.convert("photo.heic", "jpg")
-MediaConverter.convert("video.mov", "mp4", fps=30)
-```
-
-## Supported Conversions
-
-| Category | Formats |
-|----------|---------|
-| **Images** | JPG ↔ JPEG ↔ PNG ↔ WEBP ↔ GIF ↔ BMP ↔ TIFF ↔ HEIC/HEIF ↔ SVG ↔ ICO |
-| **Documents** | PDF ↔ DOCX ↔ TXT ↔ HTML ↔ MD |
-| **Media** | MP4 / AVI / MOV / MKV → GIF, MP3, VAW, FLAC \| GIF → MP4, PNGs |
-| **Data** | JSON ↔ XML ↔ CSV ↔ YAML/YML |
-| **Batch** | Folder → PDF, Folder → GIF |
-
-##  Configuration
-
-Customize settings in `converter_app/utils.py`:
-- Default quality/compression levels
-- Supported format lists
-- Notification preferences
-- Log file location
 
 ##  GPT Text Support
 
@@ -110,15 +64,6 @@ Customize settings in `converter_app/utils.py`:
    - Trig functions: \sin → sin, \cos → cos, \tan → tan
    - Parentheses: \left( → (, \right) → )
 
-## Requirements
-
-- **Python**: 3.8+
-- **Core**: `Pillow`, `python-docx`, `PyPDF2`, `markdown`
-- **Images**: `pillow-heif` (HEIC support)
-- **Media**: `moviepy`, `pydub` + **FFmpeg**
-- **Windows**: `win11toast` (notifications), `pywin32` (context menu)
-- **HTML Processing**: `beautifulsoup4`, `html2text`
-- **SVG**: `cairosvg`
 
 ## Contributing
 
@@ -127,11 +72,6 @@ Customize settings in `converter_app/utils.py`:
 3. Commit changes: `git commit -m 'Add support for XYZ'`
 4. Push: `git push origin feature/new-format`
 5. Open Pull Request
-
-## License
-
-MIT License - See [LICENSE](LICENSE) file
-
 ---
 
-**Enjoy fast, private, and seamless file conversions!**
+## Enjoy fast, private, and seamless file conversions!
