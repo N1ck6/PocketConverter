@@ -9,18 +9,19 @@ It allows users to instantly convert files between various formats without requi
 ## Supported Conversions
 | Category | Formats |
 |----------|---------|
-| **Images** | JPG ↔ JPEG ↔ PNG ↔ WEBP ↔ GIF ↔ BMP ↔ TIFF ↔ HEIC/HEIF ↔ SVG ↔ ICO |
+| **Images** | JPG ↔ JPEG ↔ PNG ↔ WEBP ↔ BMP ↔ TIFF ↔ HEIC/HEIF ↔ SVG ↔ ICO |
 | **Documents** | PDF ↔ DOCX ↔ TXT ↔ HTML ↔ MD |
-| **Media** | MP4 / AVI / MOV / MKV → GIF, MP3, VAW, FLAC \| GIF → MP4, PNGs |
-| **Data** | JSON ↔ XML ↔ CSV ↔ YAML/YML |
+| **Video/GIF** | MP4 → GIF, MP3, WAV, FLAC, AAC, OGG \| GIF → MP4, PNG(s) |
+| **Audio** | MP3 ↔ WAV ↔ FLAC ↔ AAC ↔ OGG |
+| **Data** | JSON ↔ XML ↔ CSV ↔ YAML |
 | **Batch** | Folder → PDF, Folder → GIF |
 
 ## Features
 
-- **Progress Bar**: Progress for large files or batch conversions
+- **Progress Bar**: Progress for large batch conversions (visible in console/dev runs)
 - **Privacy**: 100% offline, no uploads, complete confidentiality
 - **Notifications**: Grouped completion alerts via Windows toast
-- **Text Formatting**: Сleans markdown from GPT-generated text and converts formulas to calculator format
+- **Text Formatting**: Cleans markdown from GPT-generated text and converts formulas to calculator format
 
 ## Usage
 
@@ -41,11 +42,13 @@ git clone https://github.com/N1ck6/PocketConverter.git
 cd PocketConverter
 pip install -r requirements.txt
 # Use pyinstaller to compile into .exe:
-# pyinstraller --onefile --noconsole --icon=small,ico --add-data "logo.ico;." --add-data "DejaVuSansCondensed.ttf;." --add-data "converter_app;converter_app" converter.py
-# Place in subfolder "Pocket Converter" in "Program Files" folder
+# pyinstaller --onefile --noconsole --icon=small.ico --add-data "logo.ico;." --add-data "DejaVuSansCondensed.ttf;." --add-data "converter_app;converter_app" converter.py
+# Place in subfolder "PocketConverter" in "Program Files" folder
 ```
 
 ##  GPT Text Support
+
+Right-click a `.txt` file → **"Convert to"** → **"Clean GPT Text"** to save a cleaned copy (`name(cleaned).txt`) next to the original, with the following applied:
 
 **Clean GPT Markdown**:
    - Removes heading markers (#, ##, ###)

@@ -20,16 +20,15 @@ CONVERSION_MAP = {
     'jpeg': ['jpg', 'png', 'webp', 'ico'],
     'jpg': ['png', 'webp', 'ico'],
     'png': ['jpg', 'webp', 'ico'],
-    'svg': ['png', 'jpg', 'webp', 'md'],
+    'svg': ['png', 'jpg', 'webp'],
     'tiff': ['jpg', 'png', 'webp', 'ico'],
     'webp': ['jpg', 'png', 'ico'],
     # Documents
     'docx': ['txt', 'pdf', 'md'],
     'html': ['pdf', 'txt', 'md'],
-    'markdown': ['pdf', 'html', 'docx', 'txt'],
     'md': ['pdf', 'html', 'docx', 'txt'],
     'pdf': ['txt', 'docx', 'md'],
-    'txt': ['pdf', 'docx', 'md', 'html'],
+    'txt': ['pdf', 'docx', 'md', 'html', 'cleangpt'],
     # Animated & Audio
     'gif': ['mp4', 'png', 'pngs'],
     'mp4': ['gif', 'mp3', 'wav', 'flac'],
@@ -39,11 +38,15 @@ CONVERSION_MAP = {
     'ogg': ['mp3', 'wav', 'flac', 'aac'],
     'wav': ['mp3', 'flac', 'aac', 'ogg'],
     # Data
-    'csv': ['json', 'xml', 'yaml', 'yml'],
-    'json': ['csv', 'xml', 'yaml', 'yml'],
-    'xml': ['json', 'csv', 'yaml', 'yml'],
+    'csv': ['json', 'xml', 'yaml'],
+    'json': ['csv', 'xml', 'yaml'],
+    'xml': ['json', 'csv', 'yaml'],
     'yaml': ['json', 'csv', 'xml'],
-    'yml': ['json', 'csv', 'xml'],
+}
+
+# Display names for menu items where label isn't self-explanatory
+MENU_LABELS = {
+    'cleangpt': 'Clean GPT Text',
 }
 
 def run_as_admin():
@@ -75,16 +78,17 @@ def add_context_menu():
             winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, ICON_PATH)
             winreg.SetValueEx(key, "SubCommands", 0, winreg.REG_SZ, "")
             winreg.SetValueEx(key, "MultiSelectModel", 0, winreg.REG_SZ, "Single")
-        
-        shell_path = f"{key_path}\\shell"
-        winreg.CreateKey(winreg.HKEY_CURRENT_USER, shell_path)
+
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, f"{key_path}\\shell"):
+            pass
 
         for i, target in enumerate(targets):
             subkey_path = f"{key_path}\\shell\\sub_one_{i}"
             cmd_path = f"{subkey_path}\\command"
+            label = MENU_LABELS.get(target, target.upper())
 
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, subkey_path) as key:
-                winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, target)
+                winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, label)
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, cmd_path) as key:
                 winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f'"{EXE_PATH}" "%1" {target}')
 
@@ -96,15 +100,15 @@ def add_context_menu():
         winreg.SetValueEx(key, "SubCommands", 0, winreg.REG_SZ, "")
         winreg.SetValueEx(key, "MultiSelectModel", 0, winreg.REG_SZ, "Single")
 
-    dir_shell_path = f"{dir_key_path}\\shell"
-    winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, dir_shell_path)
-    
+    with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, f"{dir_key_path}\\shell"):
+        pass
+
     for i, target in enumerate(['pdf', 'gif']):
         subkey_path = f"{dir_key_path}\\shell\\sub_one_{i}"
         cmd_path = f"{subkey_path}\\command"
 
         with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, subkey_path) as key:
-            winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, target)
+            winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, target.upper())
         with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, cmd_path) as key:
             winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f'"{EXE_PATH}" "%V" folder{target}')
 

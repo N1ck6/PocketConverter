@@ -2,7 +2,7 @@ from converter_app.image_converter import ImageConverter
 from converter_app.document_converter import DocumentConverter
 from converter_app.animated_converter import AnimatedConverter
 from converter_app.folder_converter import DataConverter, BatchProcessor
-from converter_app.utils import show_toast, get_unique_filename, clear_toast_queue
+from converter_app.utils import show_toast, get_unique_filename, clear_toast_queue, log_error
 from os import devnull
 import sys
 from pathlib import Path
@@ -44,10 +44,12 @@ class ProgressBar:
         else:
             status = f"\r{self.title}: [{bar}] {percent:5.1f}% ({self.current}/{self.total}) | ETA: {eta_str}"
 
-        print(status, end='', flush=True)
-
-        if self.current >= self.total:
-            print(f"\n✓ Completed {self.total} conversions in {elapsed:.1f}s")
+        try:
+            print(status, end='', flush=True)
+            if self.current >= self.total:
+                print(f"\n✓ Completed {self.total} conversions in {elapsed:.1f}s")
+        except Exception:
+            pass  # No console attached (e.g. compiled with --noconsole) — progress just isn't visible
 
     def finish(self):
         if self.current < self.total:
@@ -64,27 +66,46 @@ class FileConverter:
         self.progress_callback = progress_callback
         
         self._routers: Dict[str, object] = {}
-        for conv in (self.image_converter, self.document_converter, 
+        for conv in (self.image_converter, self.document_converter,
                      self.animated_converter, self.data_converter):
             for ext in getattr(conv, "SUPPORTED_EXTENSIONS", []):
-                self._routers[ext.lower()] = conv
+                ext = ext.lower()
+                if ext in self._routers:
+                    raise RuntimeError(
+                        f"Extension '.{ext}' is claimed by both "
+                        f"{type(self._routers[ext]).__name__} and {type(conv).__name__}"
+                    )
+                self._routers[ext] = conv
 
     def convert_file(self, filepath: str, mode: str) -> Tuple[bool, str]:
         path = Path(filepath)
-        
+        mode = mode.lower()
+
         if "folder" in mode:
             if not path.is_dir(): return (False, "Folder doesn't exist")
             try:
                 self.batch_processor.convert_folder(filepath, mode)
                 return (True, f"Folder converted to {mode}")
             except Exception as e:
+                log_error("folder", mode)
                 return (False, f"Folder conversion failed: {str(e)}")
 
         if not path.is_file(): return (False, "File doesn't exist")
 
-        ext, target = path.suffix.lower(), f".{mode.lower()}"
+        ext = path.suffix.lower()
         key = ext[1:]
 
+        if mode == 'cleangpt':
+            if key not in self._routers: return (False, "Format not allowed right now")
+            try:
+                new_name = get_unique_filename(path.parent, f"{path.stem}(cleaned)", "txt")
+                self._routers[key].convert(str(path), mode, new_name)
+                return (True, "Cleaned text saved")
+            except Exception as e:
+                log_error(ext, mode)
+                return (False, f"Conversion error: {str(e)}")
+
+        target = f".{mode}"
         if ext == target: return (False, "File with that extension already exists")
         if key not in self._routers: return (False, "Format not allowed right now")
 
@@ -93,14 +114,16 @@ class FileConverter:
             self._routers[key].convert(str(path), mode, new_name)
             return (True, f"Converted to {mode}")
         except Exception as e:
+            log_error(ext, mode)
             return (False, f"Conversion error: {str(e)}")
     
     def convert_multiple_files(self, filepaths: List[str], mode: str,
                                 show_progress: bool = False) -> List[Tuple[bool, str]]:
         if not filepaths: return [(False, "No valid files to convert")]
+        mode = mode.lower()
         first_ext = Path(filepaths[0]).suffix.lower()
         validated_files = []
-        target = f".{mode.lower()}"
+        target = f".{mode}"
 
         for filepath in filepaths:
             path = Path(filepath)
@@ -145,8 +168,8 @@ class FileConverter:
         clear_toast_queue(f"Conversion into {mode}")
         
         return results
-        
-        
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: converter.exe <filepath> <mode>")
@@ -161,8 +184,8 @@ if __name__ == "__main__":
 
     converter = FileConverter()
     if len(filepaths) == 1:
-        devnull = open(devnull, 'w')
-        sys.stdout, sys.stderr = devnull, devnull   # Disable console window popping up
+        null_stream = open(devnull, 'w')
+        sys.stdout, sys.stderr = null_stream, null_stream   # Disable console window popping up
         
         success, message = converter.convert_file(filepaths[0], mode)
         if success:

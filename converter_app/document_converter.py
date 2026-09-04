@@ -1,10 +1,10 @@
 import re
 from pathlib import Path
-from converter_app.utils import show_toast, FONT_PATH
+from converter_app.utils import FONT_PATH
 import xml.etree.ElementTree as ET
 
 class DocumentConverter:
-    SUPPORTED_EXTENSIONS = {'txt', 'pdf', 'docx', 'md', 'markdown', 'html', 'rtf', 'odt', 'epub'}
+    SUPPORTED_EXTENSIONS = {'txt', 'pdf', 'docx', 'md', 'html', 'rtf', 'odt', 'epub'}
 
     _UNICODE_FRACTIONS = {
         '½': '1/2', '¼': '1/4', '¾': '3/4',
@@ -14,7 +14,7 @@ class DocumentConverter:
         '⅜': '3/8', '⅝': '5/8', '⅞': '7/8',
         '⅑': '1/9', '⅒': '1/10', '⅟': '1/',
     }
-    
+
     _RE_MARKDOWN_CLEAN = re.compile(
         r'(?m)^#{1,6}\s+|'  # Headings
         r'(?<!\\)\*\*(.+?)\*\*|'  # Bold **
@@ -40,12 +40,11 @@ class DocumentConverter:
         handlers = {
             'txt': self._convert_from_txt, 'docx': self._convert_from_docx,
             'pdf': self._convert_from_pdf, 'md': self._convert_from_markdown,
-            'markdown': self._convert_from_markdown, 'html': self._convert_from_html
+            'html': self._convert_from_html
         }
         handler = handlers.get(ext)
         if not handler:
-            show_toast("Error", f"Source format .{ext} not supported")
-            return
+            raise ValueError(f"Source format .{ext} not supported")
         handler(filepath, mode, new_name)
 
     def _convert_from_txt(self, filepath: str, mode: str, new_name: str) -> None:
@@ -53,21 +52,22 @@ class DocumentConverter:
         out = Path(filepath).parent / f"{new_name}"
         if mode == 'pdf': self._write_pdf(out, processed)
         elif mode == 'docx': self._write_docx(out, processed)
-        elif mode in ('md', 'markdown'): (out.with_suffix('.md')).write_text(processed, encoding='utf-8')
+        elif mode == 'md': (out.with_suffix('.md')).write_text(processed, encoding='utf-8')
         elif mode == 'html': self._write_html(out, processed)
-        else: show_toast("Error", f"Target format .{mode} not supported")
+        elif mode == 'cleangpt': out.with_suffix('.txt').write_text(processed, encoding='utf-8')
+        else: raise ValueError(f"Target format .{mode} not supported")
 
     def _convert_from_docx(self, filepath: str, mode: str, new_name: str) -> None:
         from docx import Document
-        
+
         doc = Document(filepath)
         text = '\n'.join(p.text for p in doc.paragraphs)
         out = Path(filepath).parent / new_name
 
         if mode == 'txt': out.with_suffix('.txt').write_text(text, encoding='utf-8')
         elif mode == 'pdf': self._write_pdf(out, text)
-        elif mode in ('md', 'markdown'): out.with_suffix('.md').write_text(text, encoding='utf-8')
-        else: show_toast("Error", f"Target format .{mode} not supported")
+        elif mode == 'md': out.with_suffix('.md').write_text(text, encoding='utf-8')
+        else: raise ValueError(f"Target format .{mode} not supported")
 
     def _convert_from_pdf(self, filepath: str, mode: str, new_name: str) -> None:
         from pymupdf import open as pdfopen
@@ -76,15 +76,15 @@ class DocumentConverter:
         text = ''.join(page.get_text('text') for page in doc)
         doc.close()
         out = Path(filepath).parent / new_name
-        
+
         if mode == 'txt': out.with_suffix('.txt').write_text(text, encoding='utf-8')
         elif mode == 'docx': self._pdf_to_docx(filepath, new_name)
         elif mode == 'md': out.with_suffix('.md').write_text(text, encoding='utf-8')
-        else: show_toast("Error", f"Target format .{mode} not supported")
+        else: raise ValueError(f"Target format .{mode} not supported")
 
     def _pdf_to_docx(self, filepath: str, new_name: str) -> None:
         from pdf2docx import Converter
-        
+
         out = Path(filepath).parent / f"{new_name}.docx"
         cv = Converter(filepath)
         try: cv.convert(str(out), start=0, end=None)
@@ -95,12 +95,12 @@ class DocumentConverter:
 
         md_text = Path(filepath).read_text(encoding='utf-8')
         out = Path(filepath).parent / new_name
-        
+
         if mode == 'pdf': self._write_pdf(out, self._html_to_text(markdown.markdown(md_text)))
         elif mode == 'html': (out.with_suffix('.html')).write_text(self._wrap_html(markdown.markdown(md_text, extensions=['extra', 'codehilite']), Path(filepath).stem), encoding='utf-8')
         elif mode == 'docx': self._markdown_to_docx(md_text, out)
         elif mode == 'txt': out.with_suffix('.txt').write_text(self._clean_markdown(md_text), encoding='utf-8')
-        else: show_toast("Error", f"Target format .{mode} not supported")
+        else: raise ValueError(f"Target format .{mode} not supported")
 
     def _markdown_to_docx(self, text: str, out: Path) -> None:
         from docx import Document
@@ -112,7 +112,7 @@ class DocumentConverter:
             elif line.startswith('## '): doc.add_heading(line[3:], level=2)
             elif line.startswith('### '): doc.add_heading(line[4:], level=3)
             elif line.strip(): doc.add_paragraph(line)
-            
+        
         self._save_docx(doc, out)
 
     def _convert_from_html(self, filepath: str, mode: str, new_name: str) -> None:
@@ -126,7 +126,7 @@ class DocumentConverter:
         if mode == 'pdf': self._write_pdf(out, text)
         elif mode == 'txt': out.with_suffix('.txt').write_text(text, encoding='utf-8')
         elif mode == 'md': import html2text; out.with_suffix('.md').write_text(html2text.html2text(html), encoding='utf-8')
-        else: show_toast("Error", f"Target format .{mode} not supported")
+        else: raise ValueError(f"Target format .{mode} not supported")
 
     def _write_pdf(self, out: Path, text: str) -> None:
         from fpdf import FPDF; from textwrap import wrap
@@ -147,7 +147,7 @@ class DocumentConverter:
         doc = Document()
         doc.add_paragraph(text)
         self._save_docx(doc, out)
-        
+
     def _repackage_clean_docx(self, src_path: Path, dst_path: Path) -> None: # Repackage docx, removing thumbnail/customXml bloat
         import zipfile
 
@@ -184,8 +184,8 @@ class DocumentConverter:
                             data = self._clean_document_rels(data)
 
                         dst_z.writestr(item, data)
-                        
-    def _remove_thumbnail_rels(self, rels_xml: bytes) -> bytes: 
+
+    def _remove_thumbnail_rels(self, rels_xml: bytes) -> bytes:
         root = ET.fromstring(rels_xml)
         ns = {'': 'http://schemas.openxmlformats.org/package/2006/relationships'}
         ET.register_namespace('', 'http://schemas.openxmlformats.org/package/2006/relationships')
@@ -204,7 +204,7 @@ class DocumentConverter:
         for elem in list(root):
             part_name = elem.get('PartName', '')
             ext = elem.get('Extension', '')
-            if ('customXml' in part_name or 
+            if ('customXml' in part_name or
                 'thumbnail' in part_name.lower() or
                 'stylesWithEffects' in part_name or
                 'numbering' in part_name):
@@ -241,7 +241,7 @@ class DocumentConverter:
 
         if temp_path.exists():
             temp_path.unlink()
-    
+
     def _write_html(self, out: Path, text: str) -> None:
         (out.with_suffix('.html')).write_text(
             f"<!DOCTYPE html>\n<html>\n<head><meta charset='utf-8'></head>\n<body>\n{text}\n</body>\n</html>",
@@ -268,7 +268,7 @@ class DocumentConverter:
         cleaned = self._clean_markdown(content)
         cleaned = self._RE_WHITESPACE.sub('\n\n', cleaned)
         return self._convert_formulas(cleaned).strip()
-    
+
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax while preserving content."""
         def _replace(match):

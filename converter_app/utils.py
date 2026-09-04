@@ -12,9 +12,9 @@ import asyncio
 import hashlib
 
 SUPPORTED_EXTENSIONS = [
-    'mp4', 'gif', 'txt', 'pdf', 'docx', 'jpg', 'jpeg', 'png', 
-    'webp', 'bmp', 'tiff', 'ico', 'heic', 'svg', 'md', 'markdown',
-    'json', 'xml', 'csv', 'mp3', 'wav', 'flac', 'aac', 'ogg'
+    'mp4', 'gif', 'txt', 'pdf', 'docx', 'jpg', 'jpeg', 'png',
+    'webp', 'bmp', 'tiff', 'ico', 'heic', 'heif', 'svg', 'md',
+    'json', 'xml', 'yaml', 'csv', 'mp3', 'wav', 'flac', 'aac', 'ogg'
 ]
 LOG_FILE_PATH = "C:\\Program Files\\PocketConverter\\PocketConverter_log.txt"
 
@@ -38,7 +38,7 @@ def check_ffmpeg():
 
 
 def get_ffmpeg_help():
-    return "FFmpeg is required for audio/video edit. Download from: https://ffmpeg.org/download.html"
+    return "FFmpeg is required for audio/video conversion. Download from: https://ffmpeg.org/download.html"
 
 def show_toast(title: str, message: str, group: str = 'default'):
     icon = str(ICON_PATH.resolve())
@@ -109,17 +109,24 @@ def get_unique_filename(directory: Path, basename: str, extension: str) -> str:
             candidate = f"{basename}({i})"
             filepath = directory / f"{candidate}.{ext}"
             if not filepath.exists(): return candidate
+        # Extremely unlikely fallback if all 100 slots are somehow taken
+        import time
+        return f"{basename}_{int(time.time())}"
     return basename
 
 def log_error(ext, target):
     import os, traceback
-    if os.path.isfile(LOG_FILE_PATH) and ext and target:
-        with open(LOG_FILE_PATH, 'a') as log_file:  # Logs file to check what might have caused an error
+    try:
+        log_dir = os.path.dirname(LOG_FILE_PATH)
+        if log_dir and not os.path.isdir(log_dir):
+            return  # e.g. running from source, not installed — nothing to log to
+        with open(LOG_FILE_PATH, 'a') as log_file:
             log_file.write(f"Error! Input: File: {ext}, Mode: {target}\n")
             log_file.write("Error Output:\n")
             log_file.write(traceback.format_exc())
             log_file.write('---------------------------------------------------------------------\n')
-    show_toast("Conversion error", f"Check log file in exe directory in Program Files for more information")
+    except OSError:
+        pass
 
 def _sha256_text(text: str) -> str:
     """Return SHA256 hex digest of a UTF-8 string."""
