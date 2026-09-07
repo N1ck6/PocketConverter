@@ -71,7 +71,7 @@ def delete_key_recursive(hkey, path):
         pass
 
 def add_context_menu():
-    for ext, targets in CONVERSION_MAP.items():# File extensions
+    for ext, targets in CONVERSION_MAP.items():  # File extensions
         key_path = fr"Software\Classes\SystemFileAssociations\.{ext}\shell\PocketConverter"
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
             winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, "Convert to")
@@ -85,7 +85,7 @@ def add_context_menu():
         for i, target in enumerate(targets):
             subkey_path = f"{key_path}\\shell\\sub_one_{i}"
             cmd_path = f"{subkey_path}\\command"
-            label = MENU_LABELS.get(target, target.upper())
+            label = MENU_LABELS.get(target, target)
 
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, subkey_path) as key:
                 winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, label)
@@ -108,7 +108,7 @@ def add_context_menu():
         cmd_path = f"{subkey_path}\\command"
 
         with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, subkey_path) as key:
-            winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, target.upper())
+            winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, target)
         with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, cmd_path) as key:
             winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f'"{EXE_PATH}" "%V" folder{target}')
 
@@ -125,6 +125,72 @@ def remove_context_menu():
     delete_key_recursive(winreg.HKEY_CLASSES_ROOT, dir_key_path)
 
     toast("Success", "Context menu removed successfully", icon=icon_dir, group='done')
+
+
+def create_reg_file(output_path="Pocket.reg"):
+    """Generate a .reg file with exact structure matching the provided Pocket.reg."""
+    lines = ["Windows Registry Editor Version 5.00", ""]
+
+    # Directory section first (as in original reg)
+    dir_key_path = r"Directory\shell\PocketConverter"
+    lines.append(f"[HKEY_CLASSES_ROOT\\{dir_key_path}]")
+    lines.append('"MUIVerb"="Convert to"')
+    lines.append(f'"Icon"="{ICON_PATH.replace(chr(92), chr(92)+chr(92))}"')
+    lines.append('"SubCommands"=""')
+    lines.append('"MultiSelectModel"="Single"')
+    lines.append("")
+    lines.append(f"[HKEY_CLASSES_ROOT\\{dir_key_path}\\shell]")
+    lines.append("")
+
+    for i, target in enumerate(['pdf', 'gif']):
+        sub = f"sub_one_{i}"
+        lines.append(f"[HKEY_CLASSES_ROOT\\{dir_key_path}\\shell\\{sub}]")
+        lines.append(f'"MUIVerb"="{target}"')
+        lines.append("")
+        lines.append(f"[HKEY_CLASSES_ROOT\\{dir_key_path}\\shell\\{sub}\\command]")
+        # Escape for .reg: backslashes doubled, inner quotes escaped
+        cmd = f'{EXE_PATH} "%V" folder{target}'
+        cmd_escaped = cmd.replace('\\', '\\\\').replace('"', '\\"')
+        lines.append(f'@="{cmd_escaped}"')
+        lines.append("")
+
+    # File extensions (order roughly follows original, but dict order is fine)
+    for ext, targets in CONVERSION_MAP.items():
+        base = fr"Software\Classes\SystemFileAssociations\.{ext}"
+        # Empty parent keys as in the exported reg
+        lines.append(f"[HKEY_CURRENT_USER\\{base}]")
+        lines.append("")
+        lines.append(f"[HKEY_CURRENT_USER\\{base}\\shell]")
+        lines.append("")
+
+        key_path = fr"{base}\shell\PocketConverter"
+        lines.append(f"[HKEY_CURRENT_USER\\{key_path}]")
+        lines.append('"MUIVerb"="Convert to"')
+        lines.append(f'"Icon"="{ICON_PATH.replace(chr(92), chr(92)+chr(92))}"')
+        lines.append('"SubCommands"=""')
+        lines.append('"MultiSelectModel"="Single"')
+        lines.append("")
+        lines.append(f"[HKEY_CURRENT_USER\\{key_path}\\shell]")
+        lines.append("")
+
+        for i, target in enumerate(targets):
+            sub = f"sub_one_{i}"
+            label = MENU_LABELS.get(target, target)
+            lines.append(f"[HKEY_CURRENT_USER\\{key_path}\\shell\\{sub}]")
+            lines.append(f'"MUIVerb"="{label}"')
+            lines.append("")
+            lines.append(f"[HKEY_CURRENT_USER\\{key_path}\\shell\\{sub}\\command]")
+            cmd = f'{EXE_PATH} "%1" {target}'
+            cmd_escaped = cmd.replace('\\', '\\\\').replace('"', '\\"')
+            lines.append(f'@="{cmd_escaped}"')
+            lines.append("")
+
+    # Write as UTF-16 LE with BOM (standard for .reg files)
+    content = "\r\n".join(lines)
+    with open(output_path, "w", encoding="utf-16") as f:
+        f.write(content)
+    return output_path
+
 
 if __name__ == "__main__":
     if system() != "Windows": quit();
