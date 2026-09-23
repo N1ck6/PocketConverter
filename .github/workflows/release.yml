@@ -1,0 +1,60 @@
+# Continuous Delivery: pushing a version tag publishes a GitHub Release.
+#
+#   1. bump __version__ in converter_app/__init__.py (e.g. "2.1.0")
+#   2. write docs/release-notes/v2.1.0.md
+#   3. git tag v2.1.0 && git push origin v2.1.0
+#
+# The run builds and tests everything again, checks that the tag matches
+# the code's version, and attaches PocketConverterSetup-<version>.exe
+# (+ its SHA256 checksum) to a new release.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to create the release
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check tag matches the app version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "${{ needs.build.outputs.version }}" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match __version__ ${{ needs.build.outputs.version }}"
+            exit 1
+          fi
+          notes="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::Release notes $notes are missing"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: PocketConverterSetup
+          path: dist
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PocketConverter ${{ needs.build.outputs.version }}
+          body_path: docs/release-notes/${{ github.ref_name }}.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/PocketConverterSetup-*.exe
+            dist/PocketConverterSetup-*.exe.sha256
+          fail_on_unmatched_files: true
