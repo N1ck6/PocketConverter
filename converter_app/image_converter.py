@@ -2,95 +2,133 @@
 Handles conversions between images including HEIC, SVG, and WEBP.
 """
 
-from PIL import Image
 from pathlib import Path
+
+from PIL import Image, ImageOps
+
+from converter_app.utils import DEFAULT_IMAGE_QUALITY, output_path
+
+ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
+SVG_LONG_SIDE = 1024  # SVGs are rasterized so that their longer side is this many pixels
 
 
 class ImageConverter:
     # Note: 'gif' is intentionally excluded — animated GIFs are handled
     # end-to-end by AnimatedConverter, which owns that extension.
     SUPPORTED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'bmp', 'tiff', 'webp', 'ico',
-        'heic', 'heif', 'svg'}
-    
-    def __init__(self, quality: int = 95):
+                            'heic', 'heif', 'svg'}
+
+    def __init__(self, quality: int = DEFAULT_IMAGE_QUALITY):
         self.quality = quality
-    
-    def convert(self, filepath: str, mode: str, new_name: str, 
+
+    def convert(self, filepath: str, mode: str, new_name: str,
                 quality: int = None, resize: tuple = None):
-
-        ext = Path(filepath).suffix.lower()
         mode = mode.lower()
+        img = self.load(filepath)
+        if resize:
+            img = img.resize(resize, Image.Resampling.LANCZOS)
 
-        if ext == '.svg':
-            self._convert_svg(filepath, mode, new_name, resize)
+        if mode == 'ico':
+            self.create_favicon(img, output_path(filepath, new_name, 'ico'))
             return
+        self.save(img, output_path(filepath, new_name, mode), mode, quality or self.quality)
 
+    @staticmethod
+    def load(filepath) -> Image.Image:
+        """Open any supported image upright (EXIF orientation applied)."""
+        ext = Path(filepath).suffix.lower()
+        if ext == '.svg':
+            return ImageConverter._rasterize_svg(filepath)
         if ext in ('.heic', '.heif'):
             from pillow_heif import register_heif_opener
             register_heif_opener()
 
-        if mode == 'ico':
-            self.create_favicon(filepath, new_name=new_name)
-            return
+        with Image.open(filepath) as img:
+            img.load()
+        img = ImageOps.exif_transpose(img)
+        if img.mode == 'CMYK':  # print-oriented files: convert once, here, so a CMYK ICC profile never ends up on RGB pixels
+            img = ImageConverter._cmyk_to_rgb(img)
+        return img
 
-        img = Image.open(filepath)
-        if resize: img = img.resize(resize, Image.Resampling.LANCZOS)
-        if mode in ('jpg', 'jpeg') or 'A' not in img.getbands(): img = img.convert("RGB")
+    @staticmethod
+    def _cmyk_to_rgb(img: Image.Image) -> Image.Image:
+        icc = img.info.get('icc_profile')
+        if icc:
+            try:
+                import io
+                from PIL import ImageCms
+                src = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+                rgb = ImageCms.profileToProfile(img, src, ImageCms.createProfile('sRGB'), outputMode='RGB')
+            except Exception:
+                rgb = img.convert('RGB')
+        else:
+            rgb = img.convert('RGB')
+        rgb.info.pop('icc_profile', None)
+        return rgb
 
-        output_path = Path(filepath).parent / f"{new_name}.{mode}"
+    @staticmethod
+    def _rasterize_svg(filepath) -> Image.Image:
+        import pymupdf
+        with pymupdf.open(str(filepath)) as doc:
+            rect = doc[0].rect
+            scale = SVG_LONG_SIDE / max(rect.width, rect.height, 1)
+            pix = doc[0].get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=True)
+            return Image.frombytes('RGBA', (pix.width, pix.height), pix.samples)
+
+    def save(self, img: Image.Image, out: Path, mode: str, quality: int = None) -> None:
         save_kwargs = {}
-        if mode in ('jpg', 'jpeg', 'webp'):
+        icc = img.info.get('icc_profile')
+        if icc:
+            save_kwargs['icc_profile'] = icc
+
+        if mode in ('jpg', 'jpeg'):
+            img = self._flatten(img)
+            save_kwargs.update(quality=quality or self.quality, optimize=True)
+        elif mode == 'webp':
+            img = img if self._has_alpha(img) else img.convert('RGB')
+            if img.mode not in ('RGB', 'RGBA'):
+                img = img.convert('RGBA')
             save_kwargs['quality'] = quality or self.quality
-            save_kwargs['optimize'] = True
         elif mode == 'png':
-            save_kwargs['optimize'] = True
+            if img.mode not in ('1', 'L', 'LA', 'P', 'RGB', 'RGBA', 'I', 'I;16'):
+                img = img.convert('RGBA' if self._has_alpha(img) else 'RGB')
             save_kwargs['compress_level'] = 6
+        elif img.mode not in ('RGB', 'RGBA', 'L'):
+            img = img.convert('RGBA' if self._has_alpha(img) else 'RGB')
+
+        exif = img.getexif()
+        if exif and mode in ('jpg', 'jpeg', 'webp', 'png'):
+            save_kwargs['exif'] = exif.tobytes()
 
         try:
-            img.save(output_path, **save_kwargs)
-        except (ValueError, KeyError):
-            raise ValueError(f"Target format '.{mode}' not supported for images")
-    
-    def _convert_svg(self, filepath: str, mode: str, new_name: str, resize: tuple = None):
-        import cairosvg
-        if not resize: resize = (1024, 1024)
+            img.save(out, format=Image.registered_extensions().get(f'.{mode}'), **save_kwargs)
+        except (ValueError, KeyError) as e:
+            out.unlink(missing_ok=True)
+            raise ValueError(f"Target format '.{mode}' not supported for images") from e
 
-        if mode == 'png':
-            output_path = Path(filepath).parent / f"{new_name}.png"
-            cairosvg.svg2png(
-                url=filepath,
-                write_to=str(output_path),
-                output_width=resize[0],
-                output_height=resize[1]
-            )
-        else:
-            temp_png = Path(filepath).parent / f"{new_name}_temp.png"
-            cairosvg.svg2png(
-                url=filepath,
-                write_to=str(temp_png),
-                output_width=resize[0],
-                output_height=resize[1]
-            )
-            try:
-                self.convert(str(temp_png), mode, new_name)
-            finally:
-                temp_png.unlink(missing_ok=True)
+    @staticmethod
+    def _has_alpha(img: Image.Image) -> bool:
+        return 'A' in img.getbands() or (img.mode == 'P' and 'transparency' in img.info)
 
-    def create_favicon(self, filepath: str, new_name: str = None, sizes: list = None):
-        if sizes is None:
-            sizes = [16, 32, 48, 64]
+    def _flatten(self, img: Image.Image) -> Image.Image:
+        """Composite transparent images onto white — JPEG has no alpha channel."""
+        if not self._has_alpha(img):
+            return img.convert('RGB')
+        rgba = img.convert('RGBA')
+        background = Image.new('RGB', rgba.size, (255, 255, 255))
+        background.paste(rgba, mask=rgba.getchannel('A'))
+        return background
 
-        img = Image.open(filepath)
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
-
-        base_name = new_name or Path(filepath).stem
-        output_path = Path(filepath).parent / f"{base_name}.ico"
-
-        icons = [img.resize((s, s), Image.Resampling.LANCZOS) for s in sizes]
-        icons[0].save(
-            output_path,
-            format='ICO',
-            sizes=[(s, s) for s in sizes],
-            append_icons=icons[1:]
-        )
+    @staticmethod
+    def create_favicon(img: Image.Image, out: Path, sizes: list = None) -> None:
+        """Multi-resolution .ico; non-square images are centered on a transparent square."""
+        sizes = sizes or ICO_SIZES
+        img = img.convert('RGBA')
+        side = max(img.size)
+        if img.width != img.height:
+            square = Image.new('RGBA', (side, side), (0, 0, 0, 0))
+            square.paste(img, ((side - img.width) // 2, (side - img.height) // 2))
+            img = square
+        if side < max(sizes):  # upscale so every icon size gets generated
+            img = img.resize((max(sizes), max(sizes)), Image.Resampling.LANCZOS)
+        img.save(out, format='ICO', sizes=[(s, s) for s in sizes])

@@ -1,70 +1,52 @@
-from converter_app.image_converter import ImageConverter
-from converter_app.document_converter import DocumentConverter
-from converter_app.animated_converter import AnimatedConverter
-from converter_app.folder_converter import DataConverter, BatchProcessor
-from converter_app.utils import show_toast, get_unique_filename, clear_toast_queue, log_error
-from os import devnull
+"""
+Entry point used by the Explorer context menu:
+
+    converter.exe "<file or folder>" <mode>
+
+Selecting several files makes Explorer start one process per file; they
+pool their jobs through converter_app.jobqueue so the user gets a single
+grouped notification instead of one per file.
+"""
+
+import os
 import sys
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
-class ProgressBar:
-    def __init__(self, total: int, title: str = "Converting"):
-        self.total = total
-        self.current = 0
-        self.title = title
-        self.start_time = time.time()
-        self._last_update = 0
+from converter_app import __version__
+from converter_app.formats import CONVERSION_MAP, FOLDER_TARGETS, is_supported
+from converter_app.utils import friendly_error, get_unique_filename, log_error, LOG_FILE_PATH
 
-    def update(self, amount: int = 1, filename: str = ""):
-        self.current += amount
-        elapsed = time.time() - self.start_time
+BATCH_GRACE_SECONDS = 1.5  # how long the worker waits for sibling processes of one multi-select
+MAX_WORKERS = min(4, os.cpu_count() or 2)
 
-        current_time = time.time() # Disable updates flickering
-        if current_time - self._last_update < 0.1 and self.current < self.total:
-            return
 
-        self._last_update = current_time
-        percent = (self.current / self.total) * 100
-        bar_length = 40
-        filled = int(bar_length * self.current // self.total)
-        bar = '█' * filled + '░' * (bar_length - filled)
+class ConversionResult(NamedTuple):
+    success: bool
+    message: str
+    source: Path
+    output: Optional[Path] = None
 
-        if self.current > 0:
-            eta = (elapsed / self.current) * (self.total - self.current)
-            eta_str = f"{eta:.0f}s"
-        else:
-            eta_str = "--"
-
-        if filename: # Truncate filename
-            filename = filename[:30] + "..." if len(filename) > 33 else filename
-            status = f"\r{self.title}: [{bar}] {percent:5.1f}% ({self.current}/{self.total}) | File: {filename} | ETA: {eta_str}"
-        else:
-            status = f"\r{self.title}: [{bar}] {percent:5.1f}% ({self.current}/{self.total}) | ETA: {eta_str}"
-
-        try:
-            print(status, end='', flush=True)
-            if self.current >= self.total:
-                print(f"\n✓ Completed {self.total} conversions in {elapsed:.1f}s")
-        except Exception:
-            pass  # No console attached (e.g. compiled with --noconsole) — progress just isn't visible
-
-    def finish(self):
-        if self.current < self.total:
-            self.current = self.total
-            self.update(0)
 
 class FileConverter:
-    def __init__(self, progress_callback: Optional[Callable] = None):
+    def __init__(self, progress_callback=None):
+        # Imported here so processes that only hand their job to the worker start fast
+        from converter_app.animated_converter import AnimatedConverter
+        from converter_app.document_converter import DocumentConverter
+        from converter_app.folder_converter import BatchProcessor, DataConverter
+        from converter_app.image_converter import ImageConverter
+
         self.image_converter = ImageConverter()
         self.document_converter = DocumentConverter()
         self.animated_converter = AnimatedConverter()
         self.data_converter = DataConverter()
         self.batch_processor = BatchProcessor(progress_callback)
-        self.progress_callback = progress_callback
-        
+
+        self._reserved: set = set()
+        self._names_lock = threading.Lock()
         self._routers: Dict[str, object] = {}
         for conv in (self.image_converter, self.document_converter,
                      self.animated_converter, self.data_converter):
@@ -77,125 +59,185 @@ class FileConverter:
                     )
                 self._routers[ext] = conv
 
-    def convert_file(self, filepath: str, mode: str) -> Tuple[bool, str]:
+    def convert(self, filepath: str, mode: str) -> ConversionResult:
         path = Path(filepath)
         mode = mode.lower()
 
-        if "folder" in mode:
-            if not path.is_dir(): return (False, "Folder doesn't exist")
+        if mode.startswith("folder"):
+            if not path.is_dir():
+                return ConversionResult(False, "Folder not found", path)
+            if mode[len("folder"):] not in FOLDER_TARGETS:
+                return ConversionResult(False, f"Unknown folder conversion '{mode}'", path)
             try:
-                self.batch_processor.convert_folder(filepath, mode)
-                return (True, f"Folder converted to {mode}")
+                out = self.batch_processor.convert_folder(str(path), mode)
+                return ConversionResult(True, f"Saved as {out.name}", path, out)
             except Exception as e:
-                log_error("folder", mode)
-                return (False, f"Folder conversion failed: {str(e)}")
+                log_error(path, mode)
+                return ConversionResult(False, friendly_error(e), path)
 
-        if not path.is_file(): return (False, "File doesn't exist")
+        if not path.is_file():
+            return ConversionResult(False, "File doesn't exist", path)
 
-        ext = path.suffix.lower()
-        key = ext[1:]
+        key = path.suffix.lower()[1:]
+        if key not in self._routers or key not in CONVERSION_MAP:
+            return ConversionResult(False, f"Converting .{key} files isn't supported", path)
+        if not is_supported(key, mode):
+            return ConversionResult(False, f"Converting .{key} to {mode.upper()} isn't supported", path)
 
         if mode == 'cleangpt':
-            if key not in self._routers: return (False, "Format not allowed right now")
-            try:
-                new_name = get_unique_filename(path.parent, f"{path.stem}(cleaned)", "txt")
-                self._routers[key].convert(str(path), mode, new_name)
-                return (True, "Cleaned text saved")
-            except Exception as e:
-                log_error(ext, mode)
-                return (False, f"Conversion error: {str(e)}")
-
-        target = f".{mode}"
-        if ext == target: return (False, "File with that extension already exists")
-        if key not in self._routers: return (False, "Format not allowed right now")
+            out_ext, base = 'txt', f"{path.stem}(cleaned)"
+        else:
+            out_ext, base = mode, path.stem
+        with self._names_lock:  # parallel jobs (photo.jpg + photo.png -> webp) must not pick the same name
+            new_name = get_unique_filename(path.parent, base, out_ext, self._reserved)
+            out = path.parent / f"{new_name}.{out_ext}"
+            self._reserved.add(out)
+        if mode == 'pngs':
+            out = path.parent / f"{new_name}_frames"
 
         try:
-            new_name = get_unique_filename(path.parent, path.stem, mode)
-            self._routers[key].convert(str(path), mode, new_name)
-            return (True, f"Converted to {mode}")
+            produced = self._routers[key].convert(str(path), mode, new_name)
         except Exception as e:
-            log_error(ext, mode)
-            return (False, f"Conversion error: {str(e)}")
-    
-    def convert_multiple_files(self, filepaths: List[str], mode: str,
-                                show_progress: bool = False) -> List[Tuple[bool, str]]:
-        if not filepaths: return [(False, "No valid files to convert")]
-        mode = mode.lower()
-        first_ext = Path(filepaths[0]).suffix.lower()
-        validated_files = []
-        target = f".{mode}"
+            log_error(path, mode)
+            return ConversionResult(False, friendly_error(e), path)
 
-        for filepath in filepaths:
-            path = Path(filepath)
-            if not path.exists() or path.suffix.lower() != first_ext or path.suffix.lower() == target:
+        out = produced if isinstance(produced, Path) else out  # e.g. a de-duplicated frames folder
+        return ConversionResult(True, f"Saved as {out.name}", path, out)
+
+    def convert_file(self, filepath: str, mode: str) -> Tuple[bool, str]:
+        result = self.convert(filepath, mode)
+        return result.success, result.message
+
+    def convert_multiple_files(self, filepaths: List[str], mode: str) -> List[ConversionResult]:
+        if not filepaths:
+            return []
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            return list(pool.map(lambda p: self.convert(p, mode), filepaths))
+
+
+# ── Notifications ───────────────────────────────────────────────────────
+
+def _label(mode: str) -> str:
+    mode = mode.lower()
+    if mode == 'cleangpt':
+        return 'clean text'
+    if mode == 'pngs':
+        return 'PNG frames'
+    return mode.replace('folder', '').upper()
+
+
+def notify_results(mode: str, results: List[ConversionResult]) -> None:
+    from converter_app.utils import show_toast
+
+    ok = [r for r in results if r.success]
+    failed = [r for r in results if not r.success]
+    open_target = ok[0].output.parent if ok and ok[0].output else None
+
+    if len(results) == 1:
+        r = results[0]
+        if r.success:
+            show_toast(f"Converted to {_label(mode)}", r.output.name if r.output else r.message, open_target)
+        else:
+            show_toast("Conversion failed", f"{r.source.name}: {r.message}")
+        return
+
+    title = (f"Converted {len(ok)} files to {_label(mode)}" if not failed
+             else f"Converted {len(ok)} of {len(results)} files to {_label(mode)}")
+    lines = [f"{r.source.name}: {r.message}" for r in failed[:3]]
+    if len(failed) > 3:
+        lines.append(f"...and {len(failed) - 3} more (see log)")
+    body = '\n'.join(lines) if lines else f"Saved in {open_target}" if open_target else ''
+    show_toast(title, body, open_target)
+
+
+# ── Worker ──────────────────────────────────────────────────────────────
+
+def run_worker(lock) -> None:
+    """Convert queued jobs until the queue has been quiet for BATCH_GRACE_SECONDS."""
+    from converter_app import jobqueue
+
+    converter = FileConverter()
+    groups: Dict[str, List[ConversionResult]] = {}  # finished results per target mode
+    in_flight: Dict[str, int] = {}
+    last_arrival: Dict[str, float] = {}
+    futures = {}
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        last_activity = time.monotonic()
+        while True:
+            for path, mode in jobqueue.take_all():
+                futures[pool.submit(converter.convert, path, mode)] = (path, mode)
+                in_flight[mode] = in_flight.get(mode, 0) + 1
+                last_arrival[mode] = last_activity = time.monotonic()
+
+            for fut in [f for f in futures if f.done()]:
+                path, mode = futures.pop(fut)
+                try:
+                    result = fut.result()
+                except Exception as e:  # convert() catches everything, but never lose a result
+                    result = ConversionResult(False, friendly_error(e), Path(path))
+                groups.setdefault(mode, []).append(result)
+                in_flight[mode] -= 1
+
+            # A mode's batch is complete once nothing is running for it and no
+            # sibling process has added to it for a moment -> one notification.
+            now = time.monotonic()
+            for mode in list(groups):
+                if in_flight[mode] == 0 and now - last_arrival[mode] >= BATCH_GRACE_SECONDS:
+                    notify_results(mode, groups.pop(mode))
+
+            if futures or groups or now - last_activity < BATCH_GRACE_SECONDS:
+                time.sleep(0.05)
                 continue
 
-            key = path.suffix.lower()[1:]
-            if key not in self._routers: continue
-            
-            validated_files.append(filepath)
+            lock.release()
+            if jobqueue.has_jobs() and lock.acquire():
+                last_activity = time.monotonic()
+                continue
+            break
 
-        if not validated_files: return [(False, "No valid files to convert")]
 
-        results = []
-        show_progress = show_progress or len(validated_files) >= 4
+def show_about() -> None:
+    from converter_app.utils import show_message_box
+    show_message_box(
+        f"PocketConverter {__version__}",
+        "PocketConverter works from the Explorer context menu:\n\n"
+        "  1. Right-click a file (or a folder of images)\n"
+        "  2. Choose \"Convert to\" and pick a format\n"
+        "  3. The result is saved next to the original\n\n"
+        "Windows 11: the entry is under \"Show more options\" (or Shift+F10).\n"
+        "You can select several files at once.\n\n"
+        f"Error log: {LOG_FILE_PATH}"
+    )
 
-        if show_progress:
-            progress = ProgressBar(len(validated_files), f"Converting to {mode}")
-        else:
-            progress = None
-        
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_file = {
-                executor.submit(self.convert_file, filepath, mode): filepath
-                for filepath in validated_files
-            }
-            
-            for future in as_completed(future_to_file):
-                filepath = future_to_file[future]
-                try:
-                    success, message = future.result()
-                    results.append((success, message))
-                    if progress:
-                        filename = Path(filepath).name
-                        progress.update(1, filename)
-                except Exception as e:
-                    error_msg = f"Unexpected error for {filepath}: {str(e)}"
-                    results.append((False, error_msg))
-                    if progress:
-                        progress.update(1, Path(filepath).name)
-        
-        clear_toast_queue(f"Conversion into {mode}")
-        
-        return results
+
+def main(argv: List[str]) -> int:
+    args = argv[1:]
+    if not args or args[0] in ('-h', '--help', '/?'):
+        show_about()
+        return 0
+    if args[0] == '--version':
+        print(__version__)
+        return 0
+    if len(args) < 2:
+        show_about()
+        return 2
+
+    from converter_app import jobqueue
+
+    mode = args[-1].lower()
+    for filepath in args[:-1]:
+        jobqueue.submit(os.path.abspath(filepath), mode)
+
+    lock = jobqueue.WorkerLock()
+    if not lock.acquire():
+        return 0  # another converter.exe is already working and will pick our job up
+    try:
+        run_worker(lock)
+    finally:
+        lock.release()
+    return 0
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: converter.exe <filepath> <mode>")
-        quit()
-    
-    mode = sys.argv[-1]
-    filepaths = sys.argv[1:-1]
-
-    if not filepaths:
-        print("Error: No input files provided")
-        quit()
-
-    converter = FileConverter()
-    if len(filepaths) == 1:
-        null_stream = open(devnull, 'w')
-        sys.stdout, sys.stderr = null_stream, null_stream   # Disable console window popping up
-        
-        success, message = converter.convert_file(filepaths[0], mode)
-        if success:
-            show_toast("Conversion complete", message)
-        else:
-            show_toast("Conversion failed", message)
-    else:
-        # Batch conversion with progress bar
-        results = converter.convert_multiple_files(filepaths, mode, show_progress=True)
-
-        success_count = sum(1 for success, _ in results if success)
-        total_count = len(results)
-        show_toast(f"Conversion into {mode}", f"Converted {success_count}/{total_count} files")
+    sys.exit(main(sys.argv))

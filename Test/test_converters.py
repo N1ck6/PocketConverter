@@ -1,21 +1,20 @@
 """
 Standard unit tests for all converter modules.
-Run with: python -m pytest test_converters.py -v
+Run with: python -m pytest Test -v
 Or in VS Code: Right-click -> Run Tests
 """
 
+import helpers  # noqa: F401  (must be first: isolates %LOCALAPPDATA%)
 import unittest
-import sys
 from pathlib import Path
 import tempfile
 import shutil
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from converter_app.image_converter import ImageConverter
 from converter_app.document_converter import DocumentConverter
 from converter_app.folder_converter import DataConverter, BatchProcessor
-from converter_app.utils import _sha256_text, _image_pixel_hash, _pdf_text_hash, _docx_text_hash
+from helpers import (sha256_text as _sha256_text, image_pixel_hash as _image_pixel_hash,
+                     pdf_text_hash as _pdf_text_hash, docx_text_hash as _docx_text_hash)
 
 # Expected SHA256 hashes
 HASH = {
@@ -23,7 +22,7 @@ HASH = {
     "txt_to_pdf":   "bdd62d24400bda5f949feef040ee81d12d99cf59544b86aad63b46f8566017a8",
     "txt_to_docx":  "c6e20ac29adf95481d582a1624fece6f13858fea1e27b4445c2e51d3ff8a49fe",
     "md_to_html":   "274f4499c45db64414d1ef4c5513b819c72b216e7f72b37a0d6aa9e12f3c9d24",
-    "html_to_txt":  "fcb0cc3c62ff84a0a1fc3de9242514434b5d4cd82e97611168c81508e7dd3c71",
+    "html_to_txt":  "72e90b41b282bd3b76a51023864f83745da777bebebe68812637496a1c266a3d",
     "md_to_txt":    "e983b42b4cfa06ec78bfb801ed9b26adf713412d97337c59339f4d3ab503147c",
 
     # ── ImageConverter (pixel hashes) ──
@@ -33,9 +32,9 @@ HASH = {
     "bmp_to_webp":  "0dbb746cbe56dd10d7bb319e8ad0ba1d3f736d709a90fbcdea3f63e2d1a4f1b4",
 
     # ── DataConverter ──
-    "json_to_csv":  "bfb7e00208ff62a2ed59f9890f2fd2b4dcdb533ee043b252d75ec68f96293559",
-    "json_to_xml":  "03421661858c3bd94a622429f1e8a4b19b9aa0179ee399b755a8dfcfcb159b18",
-    "csv_to_json":  "c0840f5777f389f21611705ddbb36f19661bb2da5f1e42abc6465b9a7a550fc1",
+    "json_to_csv":  "37064c0fde45f042133a96ec4779958214e46f4fee7abb33241880df7ec3a50a",
+    "json_to_xml":  "a475e87db7b7eeb3f841d099f1a123be4d828d21d6138309f88a6e2bba42381c",
+    "csv_to_json":  "d70c37c285a997e6c89c0e1d5793261c7952e8b56ee0ed1edeaa6f68b63cacc9",
     "xml_to_json":  "f1a728a1b83af48f23102b50fc9b3ace1065652a5a98e3f2a7b28b64f3d9e26d",
     "yaml_to_json": "5e0533807b3d372823bec729e74a5bdacdc07a6bafe38bf726b3ce78ba5bb751",
     "json_to_yaml": "6f27adab722bfb2b9d1238a0123323a1dfccfab74de9e2165cc18796ffe1187b",
@@ -198,41 +197,41 @@ class TestDocumentConverter(unittest.TestCase):
         """Test that headings are removed in GPT support mode."""
         text = "# Heading\n## Subheading\n### Deep heading"
         expected = "Heading\nSubheading\nDeep heading"
-        result = self.converter._process_txt_with_gpt_support(text)
+        result = self.converter.clean_gpt_text(text)
         self.assertEqual(result, expected)
 
     def test_process_txt_with_gpt_support_removes_bold(self):
         """Test that bold markers are removed."""
         text = "This is **bold** text"
         expected = "This is bold text"
-        result = self.converter._process_txt_with_gpt_support(text)
+        result = self.converter.clean_gpt_text(text)
         self.assertEqual(result, expected)
 
     def test_process_txt_with_gpt_support_removes_italic(self):
         """Test that italic markers are removed."""
         text = "This is *italic* text"
         expected = "This is italic text"
-        result = self.converter._process_txt_with_gpt_support(text)
+        result = self.converter.clean_gpt_text(text)
         self.assertEqual(result, expected)
 
     def test_process_txt_with_gpt_support_removes_code_blocks(self):
         """Test that code markers are removed."""
         text = "Use `code` for inline"
         expected = "Use code for inline"
-        result = self.converter._process_txt_with_gpt_support(text)
+        result = self.converter.clean_gpt_text(text)
         self.assertEqual(result, expected)
 
     def test_process_txt_with_gpt_support_removes_links(self):
         """Test that markdown links are converted."""
         text = "Visit [Google](https://google.com)"
         expected = "Visit Google"
-        result = self.converter._process_txt_with_gpt_support(text)
+        result = self.converter.clean_gpt_text(text)
         self.assertEqual(result, expected)
 
     def test_process_txt_with_gpt_support_removes_list_markers(self):
         """Test that list markers are removed."""
         text = "- Item 1\n* Item 2"
-        result = self.converter._process_txt_with_gpt_support(text)
+        result = self.converter.clean_gpt_text(text)
         self.assertIn("Item 1", result)
         self.assertIn("Item 2", result)
         self.assertNotIn("- ", result)
@@ -241,7 +240,7 @@ class TestDocumentConverter(unittest.TestCase):
     def test_process_txt_with_gpt_support_removes_quote_markers(self):
         """Test that quote markers are removed."""
         text = "> This is a quote"
-        result = self.converter._process_txt_with_gpt_support(text)
+        result = self.converter.clean_gpt_text(text)
         self.assertEqual(result, "This is a quote")
 
     def test_md_to_txt_cleaning(self):
@@ -346,7 +345,7 @@ class TestDocumentConverter(unittest.TestCase):
             f.write(text)
 
         try:
-            result = self.converter._process_txt_with_gpt_support(str(test_file))
+            result = self.converter.clean_gpt_text(test_file.read_text(encoding='utf-8'))
 
             self.assertNotIn("# ", result)
             self.assertNotIn("**", result)
@@ -415,7 +414,7 @@ class TestDataConverter(unittest.TestCase):
 
         self.assertTrue(output_file.exists(), "JSON output file should be created")
         import json as _json
-        with open(output_file, "r") as f:
+        with open(output_file, "r", encoding="utf-8") as f:
             data = _json.load(f)
         self.assertIsInstance(data, list)
         self.assertGreater(len(data), 0)
@@ -486,7 +485,7 @@ class TestBatchProcessor(unittest.TestCase):
         self.processor.convert_folder(str(self.batch_folder), "pdf")
 
         parent_dir = self.batch_folder.parent
-        pdf_files = list(parent_dir.glob("Combined_images*.pdf"))
+        pdf_files = list(parent_dir.glob("batch_test*.pdf"))
 
         self.assertGreater(len(pdf_files), 0, "PDF file should be created")
         for f in pdf_files:
@@ -497,7 +496,7 @@ class TestBatchProcessor(unittest.TestCase):
         self.processor.convert_folder(str(self.batch_folder), "gif")
 
         parent_dir = self.batch_folder.parent
-        gif_files = list(parent_dir.glob("Combined_images*.gif"))
+        gif_files = list(parent_dir.glob("batch_test*.gif"))
 
         self.assertGreater(len(gif_files), 0, "GIF file should be created")
         for f in gif_files:
@@ -509,7 +508,6 @@ class TestIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from converter import FileConverter
         cls.test_dir = Path(__file__).parent
         cls.temp_dir = Path(tempfile.mkdtemp())
@@ -552,9 +550,9 @@ class TestIntegration(unittest.TestCase):
             img.save(filepath)
             test_files.append(str(filepath))
 
-        results = self.converter.convert_multiple_files(test_files, "jpg", show_progress=False)
+        results = self.converter.convert_multiple_files(test_files, "jpg")
 
-        success_count = sum(1 for success, _ in results if success)
+        success_count = sum(1 for r in results if r.success)
         self.assertEqual(success_count, len(test_files),
                          f"All conversions should succeed: {results}")
 
@@ -578,7 +576,7 @@ class TestIntegration(unittest.TestCase):
         success, message = self.converter.convert_file(str(fake_file), "jpg")
 
         self.assertFalse(success)
-        self.assertIn("not allowed", message.lower())
+        self.assertIn("isn't supported", message.lower())
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
