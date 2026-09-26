@@ -47,6 +47,9 @@ def read_text(path) -> str:
     return _decode(Path(path).read_bytes()).replace('\r\n', '\n').replace('\r', '\n')
 
 
+_LATIN_CODEPAGES = {'cp1252', 'cp1250', 'cp1254', 'cp1257', 'cp437', 'cp850', 'utf8', 'ascii', 'usascii'}
+
+
 def _decode(raw: bytes) -> str:
     if raw.startswith((b'\xff\xfe', b'\xfe\xff')):
         return raw.decode('utf-16')
@@ -55,7 +58,16 @@ def _decode(raw: bytes) -> str:
     except UnicodeDecodeError:
         pass
     import locale
-    for enc in (locale.getpreferredencoding(False), 'cp1252'):
+    candidates = [locale.getpreferredencoding(False), 'cp1252']
+    # Legacy ANSI text depends on the PC that wrote it. A Western-locale PC
+    # would read a Russian cp1251 file as "Ïðèâåò"; but real Western text is
+    # mostly ASCII letters, so if most letters are non-ASCII bytes it's Cyrillic.
+    if candidates[0].lower().replace('-', '') in _LATIN_CODEPAGES:
+        high = sum(b >= 0xC0 for b in raw)
+        ascii_letters = sum(65 <= b <= 90 or 97 <= b <= 122 for b in raw)
+        if high > ascii_letters:
+            candidates.insert(0, 'cp1251')
+    for enc in candidates:
         try:
             return raw.decode(enc)
         except (UnicodeDecodeError, LookupError):

@@ -80,6 +80,17 @@ class TestTextEncodings(TempDirTestCase):
         FileConverter().convert_file(str(src), 'md')
         self.assertEqual((self.dir / 'ru.md').read_text(encoding='utf-8').strip(), 'Привет, мир')
 
+    def test_legacy_encodings_on_any_system_locale(self):
+        """CI runners use an English locale; users may have Russian or English Windows."""
+        from unittest import mock
+        (self.dir / 'ru.txt').write_bytes('Привет, мир! Это тест.'.encode('cp1251'))
+        (self.dir / 'fr.txt').write_bytes('Un café crème à emporter'.encode('cp1252'))
+        for locale_encoding in ('cp1252', 'cp1251'):
+            with self.subTest(locale=locale_encoding),                     mock.patch('locale.getpreferredencoding', return_value=locale_encoding):
+                self.assertEqual(read_text(self.dir / 'ru.txt'), 'Привет, мир! Это тест.')
+        with mock.patch('locale.getpreferredencoding', return_value='cp1252'):
+            self.assertEqual(read_text(self.dir / 'fr.txt'), 'Un café crème à emporter')
+
     def test_utf16_and_bom(self):
         (self.dir / 'u16.txt').write_bytes('текст'.encode('utf-16'))
         (self.dir / 'bom.txt').write_bytes('\ufefftext'.encode('utf-8'))
@@ -295,7 +306,7 @@ class TestFolders(TempDirTestCase):
     def test_folder_to_pdf_case_insensitive_natural_order(self):
         result = FileConverter().convert(str(self.folder), 'folderpdf')
         self.assertTrue(result.success, result.message)
-        self.assertEqual(result.output, self.dir / 'Holiday.pdf')
+        self.assertTrue(os.path.samefile(result.output, self.dir / 'Holiday.pdf'), result.output)
         import pymupdf
         with pymupdf.open(str(result.output)) as doc:
             self.assertEqual(doc.page_count, 3)

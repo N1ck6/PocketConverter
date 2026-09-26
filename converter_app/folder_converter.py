@@ -6,6 +6,7 @@ Handles folder-based conversions.
 import csv
 import io
 import json
+import os
 import re
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
@@ -216,7 +217,7 @@ class BatchProcessor:
     @staticmethod
     def _output_dir_and_name(folder) -> tuple:
         """Save next to the folder, named after it: Photos/ -> Photos.pdf"""
-        folder = Path(folder).resolve()
+        folder = Path(os.path.abspath(folder))  # not resolve(): keep the path as the user/Explorer gave it
         if folder.parent == folder:  # drive root: nowhere "next to" it, so save inside
             return folder, 'Combined_images'
         return folder.parent, folder.name
