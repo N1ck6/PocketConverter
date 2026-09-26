@@ -137,7 +137,8 @@ Invoke-Native "Inno Setup" { & $iscc @isccArgs ".\installer\installer.iss" }
 
 $setup = Get-Item ".\installer\output\PocketConverterSetup-$Version.exe"
 $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
-"$hash  $($setup.Name)" | Out-File -Encoding ascii "$($setup.FullName).sha256"
+# LF line ending: "sha256sum -c" (Linux, Git Bash) rejects the CRLF that Out-File writes
+[IO.File]::WriteAllText("$($setup.FullName).sha256", "$hash  $($setup.Name)`n")
 
 Write-Host "`nDone: $($setup.FullName) ($([math]::Round($setup.Length / 1MB, 1)) MB)" -ForegroundColor Green
 Write-Host "SHA256: $hash"
