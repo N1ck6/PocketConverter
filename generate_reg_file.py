@@ -1,17 +1,19 @@
 """
-Generates a REGEDIT5-compatible .reg file directly from CONVERSION_MAP /
-MENU_LABELS in remove_context_menu.py, with noremal structure and
-formatting.
+Generates Pocket.reg — a double-clickable alternative to the installer for
+people who copy converter.exe manually. Built from the same tables as the
+installer (converter_app/formats.py), per-user only (no admin needed).
 
 Usage:
-    python generate_reg_file.py > Pocket.reg
+    python generate_reg_file.py                     # writes Pocket.reg
+    python generate_reg_file.py out.reg --exe "D:\\Tools\\PocketConverter\\converter.exe"
 """
 
+import argparse
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from remove_context_menu import CONVERSION_MAP, MENU_LABELS, EXE_PATH, ICON_PATH
+from remove_context_menu import DEFAULT_EXE, menus  # noqa: E402
 
 
 def esc(s: str) -> str:
@@ -19,60 +21,26 @@ def esc(s: str) -> str:
     return s.replace('\\', '\\\\').replace('"', '\\"')
 
 
-def block(lines_out: list, key_path: str, values: list = None):
-    """
-    Append one [key] block.
-    `values` is a list of (name, data) tuples; name=None means the
-    default value (@="..."). No values -> a bare empty key declaration.
-    """
-    lines_out.append(f'[{key_path}]')
-    for name, data in (values or []):
-        if name is None:
-            lines_out.append(f'@="{esc(data)}"')
-        else:
-            lines_out.append(f'"{name}"="{esc(data)}"')
-    lines_out.append('')  # exactly one blank line before the next block
-
-
-def emit_menu(lines_out: list, base_path: str, targets: list,
-              command_fmt: str, include_precursor_keys: bool):
-    if include_precursor_keys:
-        parent = base_path.rsplit('\\shell\\PocketConverter', 1)[0]
-        block(lines_out, parent)
-        block(lines_out, f'{parent}\\shell')
-
-    block(lines_out, base_path, [
-        ('MUIVerb', 'Convert to'),
-        ('Icon', ICON_PATH),
-        ('SubCommands', ''),
-        ('MultiSelectModel', 'Single'),
-    ])
-    block(lines_out, f'{base_path}\\shell')
-
-    for i, target in enumerate(targets):
-        label = MENU_LABELS.get(target, target)
-        sub_path = f'{base_path}\\shell\\sub_one_{i}'
-        block(lines_out, sub_path, [('MUIVerb', label)])
-        block(lines_out, f'{sub_path}\\command', [(None, command_fmt.format(target=target))])
-
-
-def main():
+def render(exe: str) -> str:
+    icon = str(Path(exe).with_name('small.ico'))
     lines = ['Windows Registry Editor Version 5.00', '']
-
-    for ext, targets in CONVERSION_MAP.items():
-        base_path = f'HKEY_CURRENT_USER\\Software\\Classes\\SystemFileAssociations\\.{ext}\\shell\\PocketConverter'
-        cmd_fmt = f'{EXE_PATH} "%1" {{target}}'
-        emit_menu(lines, base_path, targets, cmd_fmt, include_precursor_keys=True)
-
-    dir_base = 'HKEY_CLASSES_ROOT\\Directory\\shell\\PocketConverter'
-    cmd_fmt = f'{EXE_PATH} "%V" folder{{target}}'
-    emit_menu(lines, dir_base, ['pdf', 'gif'], cmd_fmt, include_precursor_keys=False)
-
-    while lines and lines[-1] == '':
-        lines.pop()
-
-    sys.stdout.write('\n'.join(lines) + '\n')
+    for key_path, items in menus(exe):
+        full = f'HKEY_CURRENT_USER\\{key_path}'
+        lines += [f'[-{full}]', '']  # remove any older version of this menu first
+        lines += [f'[{full}]', '"MUIVerb"="Convert to"', f'"Icon"="{esc(icon)}"',
+                  '"SubCommands"=""', '"MultiSelectModel"="Player"', '']
+        for i, (label, command) in enumerate(items):
+            sub = f'{full}\\shell\\item_{i:02d}'
+            lines += [f'[{sub}]', f'"MUIVerb"="{esc(label)}"', '']
+            lines += [f'[{sub}\\command]', f'@="{esc(command)}"', '']
+    return '\r\n'.join(lines).rstrip() + '\r\n'
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('output', nargs='?', default='Pocket.reg')
+    parser.add_argument('--exe', default=DEFAULT_EXE)
+    args = parser.parse_args()
+    # regedit's native format is UTF-16 LE with BOM
+    Path(args.output).write_bytes(render(args.exe).encode('utf-16'))
+    print(f"Wrote {args.output}")

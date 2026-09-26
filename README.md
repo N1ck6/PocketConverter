@@ -1,80 +1,114 @@
 # Pocket Converter
 
-[![Release](https://img.shields.io/github/v/release/N1ck6/PocketConverter)](https://github.com/N1ck6/PocketConverter/releases/)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Release](https://img.shields.io/github/v/release/N1ck6/PocketConverter)](https://github.com/N1ck6/PocketConverter/releases/latest)
+[![CI](https://github.com/N1ck6/PocketConverter/actions/workflows/ci.yml/badge.svg)](https://github.com/N1ck6/PocketConverter/actions/workflows/ci.yml)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-blue)
 
-File Converter is a lightweight but powerful file conversion tool that integrates directly into the Windows context menu. <br>
-It allows users to instantly convert files between various formats without requiring an internet connection, ensuring privacy and speed.
+Pocket Converter is a lightweight, **fully offline** file converter that lives in the Windows Explorer right-click menu.
+Right-click a file → **Convert to** → pick a format. The result appears next to the original. Nothing is uploaded anywhere.
 
-## Supported Conversions
-| Category | Formats |
-|----------|---------|
-| **Images** | JPG ↔ JPEG ↔ PNG ↔ WEBP ↔ BMP ↔ TIFF ↔ HEIC/HEIF ↔ SVG ↔ ICO |
-| **Documents** | PDF ↔ DOCX ↔ TXT ↔ HTML ↔ MD |
-| **Video/GIF** | MP4 → GIF, MP3, WAV, FLAC, AAC, OGG \| GIF → MP4, PNG(s) |
-| **Audio** | MP3 ↔ WAV ↔ FLAC ↔ AAC ↔ OGG |
-| **Data** | JSON ↔ XML ↔ CSV ↔ YAML |
-| **Batch** | Folder → PDF, Folder → GIF |
+## Supported conversions
 
-## Features
+| Category | From → To |
+|----------|-----------|
+| **Images** | JPG, JPEG, PNG, WEBP, BMP, TIFF, HEIC/HEIF, SVG, ICO → JPG · PNG · WEBP · ICO |
+| **Documents** | TXT → PDF · DOCX · MD · HTML · *Clean GPT text*<br>MD → PDF · HTML · DOCX · TXT<br>DOCX → PDF · TXT · MD<br>PDF → DOCX · TXT · MD<br>HTML → PDF · TXT · MD |
+| **Video** | MP4, MOV, MKV, AVI, WEBM → MP4 · GIF · MP3 · WAV (MP4 also → FLAC · AAC · OGG) |
+| **GIF** | GIF → MP4 · PNG (first frame) · PNG (all frames, into a folder) |
+| **Audio** | MP3, WAV, FLAC, AAC, OGG, M4A → each other |
+| **Data** | JSON, CSV, XML, YAML/YML → each other |
+| **Folders** | Folder of images → one PDF (a page per image) · animated GIF |
 
-- **Progress Bar**: Progress for large batch conversions (visible in console/dev runs)
-- **Privacy**: 100% offline, no uploads, complete confidentiality
-- **Notifications**: Grouped completion alerts via Windows toast
-- **Text Formatting**: Cleans markdown from GPT-generated text and converts formulas to calculator format
+The authoritative list is [`converter_app/formats.py`](converter_app/formats.py).
+
+## Install
+
+1. Download **`PocketConverterSetup-<version>.exe`** from the [latest release](https://github.com/N1ck6/PocketConverter/releases/latest).
+2. Run it. If Windows SmartScreen says *"Windows protected your PC"*, click **More info → Run anyway**. The installer isn't code-signed yet.
+3. Choose **Install for all users** (needs admin) or **Install for me only** (no admin needed).
+
+Upgrading from 1.x? Run the new installer over the old version. It replaces 1.x in place and removes the old menu entries.
+To uninstall, go to **Settings → Apps → PocketConverter → Uninstall**.
 
 ## Usage
 
-### Context Menu (Windows Only)
-1. Right-click any supported file or folder in Windows Explorer
-2. Select **"Convert to"** → Choose format
-3. Converted file appears in the same directory
-4. Receive notification when complete
+1. Right-click a file, several files, or a folder of images in Explorer.
+   On **Windows 11**, the entry is under **Show more options** (or press **Shift+F10**).
+2. Choose **Convert to** → format.
+3. A notification tells you when it's done. Click it to open the folder.
 
-## Quick Start
+- Selecting many files gives you one combined notification (for example "Converted 12 files to PNG").
+- Existing files are never overwritten. You get `photo(1).png` instead.
+- Folder → PDF/GIF saves `<FolderName>.pdf`/`.gif` next to the folder, with images in natural order (`img2` before `img10`).
 
-### 1) Run Installer
-Download from latest **[Release](https://github.com/N1ck6/PocketConverter/releases/)**
+## GPT text support
 
-### 2) Manual Setup
-```bash
+Right-click a `.txt` file → **Convert to** → **Clean GPT text** to save a cleaned copy (`name(cleaned).txt`):
+
+- **Markdown removed**: headings, bold/italic, code fences and `inline code`, quotes, list markers, horizontal rules, links (`[text](url)` → `text`)
+- **Formulas made calculator-friendly**:
+  `√(x)`/`√x` → `(x)^(1/2)` · `³√(x)`, `⁴√(x)` → `(x)^(1/3)`, `(x)^(1/4)` · `x²`, `10⁻³` → `x^2`, `10^(-3)` ·
+  `\frac{a}{b}` → `(a)/(b)` · `½` → `1/2` · `×`, `·`, `\cdot` → `*` · `÷` → `/` · `±` → `+/-` · `≤ ≥ ≠` → `<= >= !=` ·
+  `π` → `pi` · `∞` → `inf` · `\sin`, `\left(`… → `sin`, `(`
+
+Snake_case names (`my_var`) and arithmetic like `2*3*4` are left alone. Other TXT conversions (PDF, DOCX…) keep your text exactly as written.
+
+## Troubleshooting
+
+- **The menu doesn't appear**: on Windows 11 look under *Show more options*. If it's still missing, re-run the installer and make sure the *Add "Convert to"…* box is ticked.
+- **A conversion failed**: the notification says why. Full details are in `%LOCALAPPDATA%\PocketConverter\PocketConverter_log.txt`. Please attach that file when you [open an issue](https://github.com/N1ck6/PocketConverter/issues).
+- **PDF → TXT says "no text layer"**: the PDF is a scanned image. PocketConverter doesn't do OCR.
+
+## Building from source
+
+Requires Windows, **Python 3.12+** and [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`).
+
+```powershell
 git clone https://github.com/N1ck6/PocketConverter.git
 cd PocketConverter
-pip install -r requirements.txt
-# Use pyinstaller to compile into .exe:
-# pyinstaller --onefile --noconsole --icon=small.ico --add-data "logo.ico;." --add-data "DejaVuSansCondensed.ttf;." --add-data "converter_app;converter_app" converter.py
-# Place in subfolder "PocketConverter" in "Program Files" folder
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements-dev.txt
+
+.\.venv\Scripts\python -m pytest Test          # unit tests
+.\build.ps1 -Python .\.venv\Scripts\python.exe  # -> installer\output\PocketConverterSetup-<version>.exe
 ```
 
-##  GPT Text Support
+`build.ps1` runs the tests, freezes the app with PyInstaller, smoke-tests the frozen `converter.exe` on real files, and compiles the installer.
 
-Right-click a `.txt` file → **"Convert to"** → **"Clean GPT Text"** to save a cleaned copy (`name(cleaned).txt`) next to the original, with the following applied:
+Without the installer, you can register the menu for your user with `python remove_context_menu.py add --exe <path to converter.exe>`, or import `Pocket.reg` (made by `generate_reg_file.py`).
 
-**Clean GPT Markdown**:
-   - Removes heading markers (#, ##, ###)
-   - Strips bold and italic formatting
-   - Removes code block markers, list markers, quote markers (>)
-   - Converts links [text](url) to plain text
+### Project layout
 
-**Convert Formulas**:
-   - Square roots: √(x) → (x)^(1/2)
-   - Nth roots: ⁿ√(x) → (x)^(1/n)
-   - Fractions: ½ → 1/2, ¼ → 1/4, ¾ → 3/4
-   - LaTeX fractions: \frac{a}{b} → (a)/(b)
-   - Powers: x² → x^2
-   - Math symbols: × → *, ÷ → /, − → -, ± → +/-
-   - Constants: π → pi, ∞ → inf
-   - Trig functions: \sin → sin, \cos → cos, \tan → tan
-   - Parentheses: \left( → (, \right) → )
+| Path | What it is |
+|------|------------|
+| `converter.py` | Entry point Explorer calls: `converter.exe "<file>" <format>`. Batches multi-selections into one job. |
+| `converter_app/formats.py` | **Single source of truth** for which conversions the menu offers |
+| `converter_app/*_converter.py` | Image, document, media (FFmpeg), data and folder converters |
+| `installer/` | Inno Setup script, registry generator, smoke and installer tests |
+| `.github/workflows/` | CI (every pull request) and Release (on merge into `main`) pipelines |
 
+### Adding a format
+
+1. Add it to `CONVERSION_MAP` in `converter_app/formats.py`.
+2. Make sure the right converter's `SUPPORTED_EXTENSIONS` and `convert()` handle it.
+3. Add a test in `Test/`. `TestFormatsConsistency` fails if a menu entry has no converter.
+
+The installer's registry entries are generated from the map, so there's nothing else to edit.
+
+### Releasing
+
+1. On `development`: bump `__version__` in `converter_app/__init__.py` and add `docs/release-notes/v<version>.md`.
+2. Open a pull request `development` → `main` and wait for CI to pass.
+3. Merge it. GitHub Actions builds and tests again, creates the `v<version>` tag and publishes the release.
+   Merges that don't change the version are built and tested but not released. Don't push version tags by hand.
 
 ## Contributing
 
 1. Fork the repo
-2. Create feature branch: `git checkout -b feature/new-format`
-3. Commit changes: `git commit -m 'Add support for XYZ'`
-4. Push: `git push origin feature/new-format`
-5. Open Pull Request
----
+2. Create a feature branch: `git checkout -b feature/new-format`
+3. Commit your changes and push
+4. Open a pull request. CI will lint, test and build it automatically.
 
-## Enjoy fast, private, and seamless file conversions!
+## License
+
+[MIT](LICENSE)

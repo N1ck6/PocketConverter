@@ -1,0 +1,7 @@
+# Lint config used locally and in CI: python -m ruff check .
+target-version = "py310"
+extend-exclude = ["build", "dist", "installer/output"]
+
+[lint]
+# Pyflakes (unused/undefined names, real bugs) + syntax errors. Style is not enforced.
+select = ["F", "E9"]

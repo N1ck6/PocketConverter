@@ -1,140 +1,91 @@
-import os
+"""
+Add or remove the "Convert to" context menu for the current user, without
+the installer (e.g. for a manual/dev setup). No admin rights needed: all
+keys live under HKEY_CURRENT_USER.
+
+Usage:
+    python remove_context_menu.py            # toggle
+    python remove_context_menu.py add [--exe "D:\\Tools\\PocketConverter\\converter.exe"]
+    python remove_context_menu.py remove
+"""
+
+import argparse
 import sys
-import ctypes
 import winreg
-from win11toast import toast
-from platform import system
+from pathlib import Path
 
-base_path = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(__file__)
-icon_dir = os.path.join(base_path, 'logo.ico')
-EXE_PATH = r"C:\Program Files\PocketConverter\converter.exe"
-ICON_PATH = r"C:\Program Files\PocketConverter\small.ico"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from converter_app.formats import CONVERSION_MAP, FOLDER_LABELS, FOLDER_TARGETS, menu_label  # noqa: E402
 
-# source -> target mapping
-CONVERSION_MAP = {
-    # Images
-    'bmp': ['jpg', 'png', 'webp', 'ico'],
-    'heic': ['jpg', 'png', 'webp', 'ico'],
-    'heif': ['jpg', 'png', 'webp', 'ico'],
-    'ico': ['jpg', 'png', 'webp'],
-    'jpeg': ['jpg', 'png', 'webp', 'ico'],
-    'jpg': ['png', 'webp', 'ico'],
-    'png': ['jpg', 'webp', 'ico'],
-    'svg': ['png', 'jpg', 'webp'],
-    'tiff': ['jpg', 'png', 'webp', 'ico'],
-    'webp': ['jpg', 'png', 'ico'],
-    # Documents
-    'docx': ['txt', 'pdf', 'md'],
-    'html': ['pdf', 'txt', 'md'],
-    'md': ['pdf', 'html', 'docx', 'txt'],
-    'pdf': ['txt', 'docx', 'md'],
-    'txt': ['pdf', 'docx', 'md', 'html', 'cleangpt'],
-    # Animated & Audio
-    'gif': ['mp4', 'png', 'pngs'],
-    'mp4': ['gif', 'mp3', 'wav', 'flac'],
-    'aac': ['mp3', 'wav', 'flac', 'ogg'],
-    'flac': ['mp3', 'wav', 'aac', 'ogg'],
-    'mp3': ['wav', 'flac', 'aac', 'ogg'],
-    'ogg': ['mp3', 'wav', 'flac', 'aac'],
-    'wav': ['mp3', 'flac', 'aac', 'ogg'],
-    # Data
-    'csv': ['json', 'xml', 'yaml'],
-    'json': ['csv', 'xml', 'yaml'],
-    'xml': ['json', 'csv', 'yaml'],
-    'yaml': ['json', 'csv', 'xml'],
-}
+DEFAULT_EXE = r"C:\Program Files\PocketConverter\converter.exe"
+FILE_KEY = r"Software\Classes\SystemFileAssociations\.{ext}\shell\PocketConverter"
+DIR_KEY = r"Software\Classes\Directory\shell\PocketConverter"
 
-# Display names for menu items where label isn't self-explanatory
-MENU_LABELS = {
-    'cleangpt': 'Clean GPT Text',
-}
 
-def run_as_admin():
-    if not ctypes.windll.shell32.IsUserAnAdmin():
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-        sys.exit()
+def menus(exe: str):
+    """Yield (key path, [(label, command), ...]) for every menu to register."""
+    for ext, targets in CONVERSION_MAP.items():
+        yield FILE_KEY.format(ext=ext), [(menu_label(ext, t), f'"{exe}" "%1" {t}') for t in targets]
+    yield DIR_KEY, [(FOLDER_LABELS.get(t, t.upper()), f'"{exe}" "%V" folder{t}') for t in FOLDER_TARGETS]
+
 
 def delete_key_recursive(hkey, path):
-    """Safely removes a registry key and all its subkeys."""
+    """Removes a registry key and all its subkeys; missing keys are fine."""
     try:
         with winreg.OpenKey(hkey, path) as key:
-            idx = 0
             while True:
                 try:
-                    subkey = winreg.EnumKey(key, idx)
-                    delete_key_recursive(hkey, f"{path}\\{subkey}")
-                    idx += 1
+                    subkey = winreg.EnumKey(key, 0)  # always 0: we delete as we go
                 except OSError:
                     break
+                delete_key_recursive(hkey, f"{path}\\{subkey}")
         winreg.DeleteKey(hkey, path)
     except FileNotFoundError:
         pass
 
-def add_context_menu():
-    for ext, targets in CONVERSION_MAP.items():  # File extensions
-        key_path = fr"Software\Classes\SystemFileAssociations\.{ext}\shell\PocketConverter"
+
+def add_context_menu(exe: str):
+    icon = str(Path(exe).with_name('small.ico'))
+    for key_path, items in menus(exe):
+        delete_key_recursive(winreg.HKEY_CURRENT_USER, key_path)  # drop stale items from older versions
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
             winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, "Convert to")
-            winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, ICON_PATH)
+            winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, icon)
             winreg.SetValueEx(key, "SubCommands", 0, winreg.REG_SZ, "")
-            winreg.SetValueEx(key, "MultiSelectModel", 0, winreg.REG_SZ, "Single")
-
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, f"{key_path}\\shell"):
-            pass
-
-        for i, target in enumerate(targets):
-            subkey_path = f"{key_path}\\shell\\sub_one_{i}"
-            cmd_path = f"{subkey_path}\\command"
-            label = MENU_LABELS.get(target, target)
-
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, subkey_path) as key:
+            winreg.SetValueEx(key, "MultiSelectModel", 0, winreg.REG_SZ, "Player")
+        for i, (label, command) in enumerate(items):
+            sub = f"{key_path}\\shell\\item_{i:02d}"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, sub) as key:
                 winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, label)
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, cmd_path) as key:
-                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f'"{EXE_PATH}" "%1" {target}')
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, f"{sub}\\command") as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, command)
+    print(f"Context menu added (converter: {exe})")
 
-    # Directory context menu (folders)
-    dir_key_path = r"Directory\shell\PocketConverter"
-    with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, dir_key_path) as key:
-        winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, "Convert to")
-        winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, ICON_PATH)
-        winreg.SetValueEx(key, "SubCommands", 0, winreg.REG_SZ, "")
-        winreg.SetValueEx(key, "MultiSelectModel", 0, winreg.REG_SZ, "Single")
-
-    with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, f"{dir_key_path}\\shell"):
-        pass
-
-    for i, target in enumerate(['pdf', 'gif']):
-        subkey_path = f"{dir_key_path}\\shell\\sub_one_{i}"
-        cmd_path = f"{subkey_path}\\command"
-
-        with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, subkey_path) as key:
-            winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, target)
-        with winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, cmd_path) as key:
-            winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f'"{EXE_PATH}" "%V" folder{target}')
-
-    toast("Success", "Context menu added successfully", icon=icon_dir, group='done')
 
 def remove_context_menu():
-    # File extensions
-    for ext in CONVERSION_MAP.keys():
-        key_path = fr"Software\Classes\SystemFileAssociations\.{ext}\shell\PocketConverter"
+    for key_path, _ in menus(DEFAULT_EXE):
         delete_key_recursive(winreg.HKEY_CURRENT_USER, key_path)
+    print("Context menu removed")
 
-    # Directory
-    dir_key_path = r"Directory\shell\PocketConverter"
-    delete_key_recursive(winreg.HKEY_CLASSES_ROOT, dir_key_path)
 
-    toast("Success", "Context menu removed successfully", icon=icon_dir, group='done')
+def is_installed() -> bool:
+    try:
+        winreg.OpenKey(winreg.HKEY_CURRENT_USER, FILE_KEY.format(ext='png')).Close()
+        return True
+    except FileNotFoundError:
+        return False
+
 
 if __name__ == "__main__":
-    if system() != "Windows": quit();
-    try:
-        run_as_admin()
-        check_path = r"Software\Classes\SystemFileAssociations\.bmp\shell\PocketConverter"
-        try:
-            winreg.OpenKey(winreg.HKEY_CURRENT_USER, check_path)
-            remove_context_menu()
-        except FileNotFoundError:
-            add_context_menu()
-    except Exception as e:
-        toast("Error", str(e), icon=icon_dir)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('action', nargs='?', choices=['add', 'remove'], help='default: toggle')
+    parser.add_argument('--exe', default=DEFAULT_EXE, help='path to converter.exe')
+    args = parser.parse_args()
+
+    action = args.action or ('remove' if is_installed() else 'add')
+    if action == 'add':
+        if not Path(args.exe).exists():
+            print(f"Warning: {args.exe} doesn't exist yet")
+        add_context_menu(args.exe)
+    else:
+        remove_context_menu()

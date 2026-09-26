@@ -1,87 +1,85 @@
 """
-Handles conversions between MP4, GIF, PNG formats and audio extraction.
+Handles video, GIF and audio conversions.
+
+All heavy lifting is done by the FFmpeg binary bundled with imageio-ffmpeg,
+so users don't need FFmpeg installed and no console window pops up.
 """
 
-from PIL import Image, ImageSequence
 from pathlib import Path
-from moviepy import VideoFileClip
-from converter_app.utils import check_ffmpeg, get_ffmpeg_help
-import subprocess
+from typing import Optional
+
+from PIL import Image, ImageSequence
+
+from converter_app.utils import (DEFAULT_AUDIO_BITRATE, DEFAULT_VIDEO_BITRATE,
+                                 get_unique_dirname, output_path, run_ffmpeg)
+
+GIF_FPS = 10
+GIF_MAX_WIDTH = 720  # full-HD GIFs are enormous; this keeps them shareable
+
+EVEN_DIMENSIONS = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'  # H.264 4:2:0 requires even width/height
 
 
 class AnimatedConverter:
-    SUPPORTED_EXTENSIONS = {'mp4', 'gif', 'mp3', 'wav', 'flac', 'aac', 'ogg'}
+    VIDEO_EXTENSIONS = {'mp4', 'mov', 'mkv', 'avi', 'webm'}
     AUDIO_CODECS = {'mp3': 'libmp3lame', 'wav': 'pcm_s16le', 'flac': 'flac', 'aac': 'aac', 'ogg': 'libvorbis'}
-    
-    def __init__(self, audio_bitrate: str = '192k', video_bitrate: str = '2000k'):
+    LOSSLESS = {'wav', 'flac'}
+    SUPPORTED_EXTENSIONS = VIDEO_EXTENSIONS | {'gif', 'm4a'} | set(AUDIO_CODECS)
+
+    def __init__(self, audio_bitrate: str = DEFAULT_AUDIO_BITRATE, video_bitrate: str = DEFAULT_VIDEO_BITRATE):
         self.audio_bitrate = audio_bitrate
         self.video_bitrate = video_bitrate
 
-    def convert(self, filepath: str, mode: str, new_name: str,
-                audio_bitrate: str = None, video_bitrate: str = None, fps: int = 10) -> None:
-        if not check_ffmpeg():
-            raise RuntimeError(get_ffmpeg_help())
-
+    def convert(self, filepath: str, mode: str, new_name: str) -> Optional[Path]:
         ext = Path(filepath).suffix.lower().lstrip('.')
         mode = mode.lower()
-        ab = audio_bitrate or self.audio_bitrate
-        vb = video_bitrate or self.video_bitrate
-        out_dir = Path(filepath).parent
 
-        if ext == 'mp4':
-            self._route_mp4(filepath, mode, out_dir, new_name, ab, vb, fps)
-        elif ext == 'gif':
-            self._route_gif(filepath, mode, out_dir, new_name, vb, fps)
-        elif ext in self.AUDIO_CODECS:
-            self._convert_audio(filepath, mode, out_dir / f"{new_name}.{mode}", ab)
+        if mode in self.AUDIO_CODECS and ext != 'gif':
+            self._to_audio(filepath, output_path(filepath, new_name, mode), mode)
+        elif ext in self.VIDEO_EXTENSIONS and mode == 'gif':
+            self._video_to_gif(filepath, output_path(filepath, new_name, 'gif'))
+        elif mode == 'mp4' and (ext in self.VIDEO_EXTENSIONS or ext == 'gif'):
+            self._to_mp4(filepath, output_path(filepath, new_name, 'mp4'))
+        elif ext == 'gif' and mode == 'png':
+            with Image.open(filepath) as img:
+                img.convert('RGBA').save(output_path(filepath, new_name, 'png'), 'PNG')
+        elif ext == 'gif' and mode == 'pngs':
+            return self._gif_to_frames(filepath, new_name)
         else:
-            raise ValueError(f"Unsupported source format .{ext}")
+            raise ValueError(f"Can't convert .{ext} to .{mode}")
 
-    def _route_mp4(self, fp: str, mode: str, out_dir: Path, new_name: str, ab: str, vb: str, fps: int) -> None:
-        if mode == 'gif':
-            self._video_to_gif(fp, out_dir / f"{new_name}.gif", fps)
-        elif mode in self.AUDIO_CODECS:
-            self._video_to_audio(fp, out_dir / f"{new_name}.{mode}", ab, mode)
-        else:
-            raise ValueError(f"Target format '{mode}' not supported for MP4")
+    def _to_audio(self, fp: str, out: Path, mode: str) -> None:
+        args = ['-i', fp, '-map', '0:a:0', '-vn', '-c:a', self.AUDIO_CODECS[mode]]
+        if mode not in self.LOSSLESS:
+            args += ['-b:a', self.audio_bitrate]
+        self._run(args, out)
 
-    def _route_gif(self, fp: str, mode: str, out_dir: Path, new_name: str, vb: str, fps: int) -> None:
-        if mode == 'mp4':
-            self._gif_to_video(fp, out_dir / f"{new_name}.mp4", vb)
-        elif mode in ('png', 'pngs'):
-            target = out_dir / f"{new_name}_frames" if mode == 'pngs' else out_dir / f"{new_name}.png"
-            self._gif_to_photos(fp, target, mode == 'pngs')
-        else:
-            raise ValueError(f"Target format '{mode}' not supported for GIF")
-    
-    def _convert_audio(self, fp: str, mode: str, out_path: Path, ab: str) -> None:
-        if mode not in self.AUDIO_CODECS:
-            raise ValueError(f"Target format '{mode}' not supported for audio")
-        cmd = ['ffmpeg', '-i', fp, '-acodec', self.AUDIO_CODECS[mode], '-b:a', ab, '-y', str(out_path)]
-        result = subprocess.run(cmd, capture_output=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"Audio conversion failed: {result.stderr.decode(errors='ignore')}")
+    def _video_to_gif(self, fp: str, out: Path) -> None:
+        # Two-pass palette gives far better colors than the default 256-color web palette
+        vf = (f"fps={GIF_FPS},scale='min({GIF_MAX_WIDTH},iw)':-1:flags=lanczos,"
+              "split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5")
+        self._run(['-i', fp, '-vf', vf, '-loop', '0'], out)
 
-    def _video_to_gif(self, fp: str, out_path: Path, fps: int) -> None:
-        with VideoFileClip(fp) as clip:
-            clip.write_gif(str(out_path), fps=fps, logger=None)
+    def _to_mp4(self, fp: str, out: Path) -> None:
+        # yuv420p + even size: plays in Windows Media Player, browsers and phones
+        self._run(['-i', fp, '-vf', EVEN_DIMENSIONS, '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                   '-b:v', self.video_bitrate, '-c:a', 'aac', '-b:a', self.audio_bitrate,
+                   '-movflags', '+faststart'], out)
 
-    def _video_to_audio(self, fp: str, out_path: Path, ab: str, mode: str) -> None:
-        if mode not in self.AUDIO_CODECS:
-            raise ValueError(f"Target format '{mode}' not supported for audio")
-        with VideoFileClip(fp) as clip:
-            clip.audio.write_audiofile(str(out_path), bitrate=ab, logger=None)
+    @staticmethod
+    def _run(args: list, out: Path) -> None:
+        try:
+            run_ffmpeg([*args, str(out)])
+        except Exception:
+            out.unlink(missing_ok=True)  # don't leave a truncated file behind
+            raise
 
-    def _gif_to_video(self, fp: str, out_path: Path, vb: str) -> None:
-        with VideoFileClip(fp) as clip:
-            clip.write_videofile(str(out_path), bitrate=vb, logger=None)
-
-    def _gif_to_photos(self, fp: str, out_path: Path, extract_all: bool) -> None:
-        out_path.parent.mkdir(exist_ok=True, parents=True)
-        base = out_path.stem
+    @staticmethod
+    def _gif_to_frames(fp: str, new_name: str) -> Path:
+        """Extract every frame into a new "<name>_frames" folder next to the GIF."""
+        folder = get_unique_dirname(Path(fp).parent, f"{new_name}_frames")
+        folder.mkdir()
         with Image.open(fp) as img:
-            if extract_all:
-                for i, frame in enumerate(ImageSequence.Iterator(img)):
-                    frame.save(out_path.parent / f"{base}-{i}.png", "PNG")
-            else:
-                img.save(out_path, "PNG")
+            digits = len(str(getattr(img, 'n_frames', 1)))
+            for i, frame in enumerate(ImageSequence.Iterator(img)):
+                frame.convert('RGBA').save(folder / f"frame_{i:0{digits}d}.png", 'PNG')
+        return folder

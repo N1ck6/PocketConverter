@@ -1,0 +1,22 @@
+# Continuous Integration: every pull request (e.g. development -> main) is
+# linted, tested, built into a Setup.exe and install-tested before you merge.
+# The finished installer is attached to the run as a downloadable artifact.
+# (Pushes to main are built by release.yml, so they aren't repeated here.)
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:  # "Run workflow" button in the Actions tab
+
+# A newer push to the same pull request cancels the run that's still going
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit

@@ -1,26 +1,16 @@
 """
-Utility functions and constants.
+Shared helpers: resource paths, text decoding, output naming, FFmpeg,
+error logging and Windows notifications.
 """
 
-import sys
+import os
 import shutil
+import subprocess
+import sys
+import time
+import traceback
 from pathlib import Path
-from win11toast import toast, toast_async
-from typing import Optional, List, Dict
-import threading
-import asyncio
-import hashlib
-
-SUPPORTED_EXTENSIONS = [
-    'mp4', 'gif', 'txt', 'pdf', 'docx', 'jpg', 'jpeg', 'png',
-    'webp', 'bmp', 'tiff', 'ico', 'heic', 'heif', 'svg', 'md',
-    'json', 'xml', 'yaml', 'csv', 'mp3', 'wav', 'flac', 'aac', 'ogg'
-]
-LOG_FILE_PATH = "C:\\Program Files\\PocketConverter\\PocketConverter_log.txt"
-
-DEFAULT_IMAGE_QUALITY = 95
-DEFAULT_AUDIO_BITRATE = '192k'
-DEFAULT_VIDEO_BITRATE = '2000k'
+from typing import Optional
 
 if getattr(sys, 'frozen', False):
     BASE_PATH = Path(sys._MEIPASS)
@@ -30,130 +20,194 @@ else:
 ICON_PATH = BASE_PATH / "logo.ico"
 FONT_PATH = BASE_PATH / "DejaVuSansCondensed.ttf"
 
-_toast_queue: Dict[str, List[str]] = {}
-_toast_lock = threading.Lock()
+# Per-user writable location — Program Files is read-only for normal users,
+# which is where the log used to go (and silently never got written).
+DATA_DIR = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'PocketConverter'
+LOG_FILE_PATH = DATA_DIR / 'PocketConverter_log.txt'
+LOG_MAX_BYTES = 1_000_000
 
-def check_ffmpeg():
-    return shutil.which('ffmpeg') is not None
+APP_ID = 'N1ck6.PocketConverter'  # must match AppUserModelID in installer.iss
+
+DEFAULT_IMAGE_QUALITY = 95
+DEFAULT_AUDIO_BITRATE = '192k'
+DEFAULT_VIDEO_BITRATE = '2000k'
+
+CREATE_NO_WINDOW = 0x08000000  # keep FFmpeg from flashing a console window
 
 
-def get_ffmpeg_help():
-    return "FFmpeg is required for audio/video conversion. Download from: https://ffmpeg.org/download.html"
+# ── Text ────────────────────────────────────────────────────────────────
 
-def show_toast(title: str, message: str, group: str = 'default'):
-    icon = str(ICON_PATH.resolve())
+def read_text(path) -> str:
+    """
+    Read a text file whatever Windows tool produced it: UTF-8 with or
+    without BOM, UTF-16 (BOM), or the legacy ANSI code page (e.g. cp1251).
+    Line endings are normalized to "\n": text-mode writes turn them back
+    into CRLF, while keeping "\r\n" here would produce "\r\r\n".
+    """
+    return _decode(Path(path).read_bytes()).replace('\r\n', '\n').replace('\r', '\n')
 
-    with _toast_lock:
-        if title not in _toast_queue:
-            _toast_queue[title] = []
-        _toast_queue[title].append(message)
 
-        all_messages = _toast_queue[title]
+_LATIN_CODEPAGES = {'cp1252', 'cp1250', 'cp1254', 'cp1257', 'cp437', 'cp850', 'utf8', 'ascii', 'usascii'}
 
-        if len(all_messages) > 1:
-            completed = sum(1 for m in all_messages if 'success' in m.lower() or 'converted' in m.lower())
-            failed = len(all_messages) - completed
-            grouped_msg = f"Completed: {completed} | Failed: {failed} | Total: {len(all_messages)}"
-            _safe_toast(title, grouped_msg, icon=icon, group=group)
-        else:
-            _safe_toast(title, message, icon=icon, group=group)
 
-def _safe_toast(title: str, message: str, icon: str, group: str):
-    if toast is None:
-        print(f"[Toast: {title}] {message}")
-        return
-
+def _decode(raw: bytes) -> str:
+    if raw.startswith((b'\xff\xfe', b'\xfe\xff')):
+        return raw.decode('utf-16')
     try:
-        toast(title, message, icon=icon, group=group)
-    except RuntimeError as e:
-        err = str(e).lower()
-        if "no running event loop" in err or "cannot be called from a running event loop" in err:
-            try: # existing event loop
-                import nest_asyncio
-                nest_asyncio.apply()
-                toast(title, message, icon=icon, group=group)
-            except ImportError:
-                # nest_asyncio not installed — schedule on existing loop
-                try:
-                    loop = asyncio.get_running_loop()
-                    asyncio.run_coroutine_threadsafe(
-                        toast_async(title, message, icon=icon, group=group), loop)
-                except RuntimeError:
-                    print(f"[Toast: {title}] {message}")
-        else:
-            raise
-    except AttributeError as e:
-        if "items" in str(e):
-            if isinstance(icon, Path):
-                icon = str(icon.resolve())
-            toast(title, message, icon=icon, group=group)
-        else:
-            raise
-    except Exception:
-        print(f"[Toast: {title}] {message}")
+        return raw.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        pass
+    import locale
+    candidates = [locale.getpreferredencoding(False), 'cp1252']
+    # Legacy ANSI text depends on the PC that wrote it. A Western-locale PC
+    # would read a Russian cp1251 file as "Ïðèâåò"; but real Western text is
+    # mostly ASCII letters, so if most letters are non-ASCII bytes it's Cyrillic.
+    if candidates[0].lower().replace('-', '') in _LATIN_CODEPAGES:
+        high = sum(b >= 0xC0 for b in raw)
+        ascii_letters = sum(65 <= b <= 90 or 97 <= b <= 122 for b in raw)
+        if high > ascii_letters:
+            candidates.insert(0, 'cp1251')
+    for enc in candidates:
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode('utf-8', errors='replace')
 
-def clear_toast_queue(title: Optional[str] = None):
-    global _toast_queue
-    with _toast_lock:
-        if title:
-            _toast_queue.pop(title, None)
-        else:
-            _toast_queue.clear()
 
-def get_unique_filename(directory: Path, basename: str, extension: str) -> str:
+# ── Output naming ───────────────────────────────────────────────────────
+
+def get_unique_filename(directory: Path, basename: str, extension: str, taken: set = frozenset()) -> str:
+    """
+    Return a basename such that <directory>/<basename>.<extension> doesn't
+    exist yet and isn't in `taken` (names reserved by parallel conversions).
+    """
     ext = extension.strip().lstrip('.')
-    filepath = directory / f"{basename}.{ext}"
+    directory = Path(directory)
 
-    if ext != 'pngs' and filepath.exists():
-        for i in range(1, 101):
-            candidate = f"{basename}({i})"
-            filepath = directory / f"{candidate}.{ext}"
-            if not filepath.exists(): return candidate
-        # Extremely unlikely fallback if all 100 slots are somehow taken
-        import time
-        return f"{basename}_{int(time.time())}"
-    return basename
+    def free(name):
+        path = directory / f"{name}.{ext}"
+        return not path.exists() and path not in taken
 
-def log_error(ext, target):
-    import os, traceback
+    if free(basename):
+        return basename
+    for i in range(1, 1000):
+        candidate = f"{basename}({i})"
+        if free(candidate):
+            return candidate
+    return f"{basename}_{time.time_ns()}"
+
+
+def get_unique_dirname(directory: Path, basename: str) -> Path:
+    directory = Path(directory)
+    candidate = directory / basename
+    i = 1
+    while candidate.exists():
+        candidate = directory / f"{basename}({i})"
+        i += 1
+    return candidate
+
+
+def output_path(filepath, new_name: str, ext: str) -> Path:
+    """
+    Build the output path next to the source. Never use Path.with_suffix()
+    on new_name: for "my.notes" it would drop ".notes" and silently write
+    (and overwrite) "my.<ext>".
+    """
+    return Path(filepath).parent / f"{new_name}.{ext}"
+
+
+def natural_key(name: str):
+    """Sort key so that img2 < img10."""
+    import re
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', name)]
+
+
+# ── FFmpeg ──────────────────────────────────────────────────────────────
+
+def get_ffmpeg_exe() -> str:
+    """Prefer the FFmpeg bundled with imageio-ffmpeg, so users don't have to install one."""
     try:
-        log_dir = os.path.dirname(LOG_FILE_PATH)
-        if log_dir and not os.path.isdir(log_dir):
-            return  # e.g. running from source, not installed — nothing to log to
-        with open(LOG_FILE_PATH, 'a') as log_file:
-            log_file.write(f"Error! Input: File: {ext}, Mode: {target}\n")
-            log_file.write("Error Output:\n")
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and Path(exe).exists():
+            return exe
+    except Exception:
+        pass
+    exe = shutil.which('ffmpeg')
+    if exe:
+        return exe
+    raise RuntimeError("FFmpeg not found. Reinstall PocketConverter or install FFmpeg from https://ffmpeg.org")
+
+
+def run_ffmpeg(args: list) -> None:
+    cmd = [get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-y', *args]
+    result = subprocess.run(
+        cmd, capture_output=True,
+        creationflags=CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    if result.returncode != 0:
+        err = result.stderr.decode(errors='ignore').strip()
+        if 'does not contain any stream' in err or 'matches no streams' in err:
+            raise RuntimeError("The file has no audio track")
+        last = err.splitlines()[-1] if err else f"exit code {result.returncode}"
+        raise RuntimeError(f"FFmpeg failed: {last}")
+
+
+# ── Errors & logging ────────────────────────────────────────────────────
+
+def friendly_error(exc: BaseException) -> str:
+    """Short, user-facing explanation for a notification."""
+    if isinstance(exc, PermissionError):
+        return "No permission to write in this folder, or the file is open in another program"
+    if isinstance(exc, FileNotFoundError):
+        return "File not found"
+    if type(exc).__name__ == 'UnidentifiedImageError':
+        return "The file is damaged or is not a valid image"
+    msg = str(exc).strip() or type(exc).__name__
+    return msg if len(msg) <= 200 else msg[:197] + '...'
+
+
+def log_error(filepath, target) -> None:
+    """Append the current exception's traceback to the per-user log file."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if LOG_FILE_PATH.exists() and LOG_FILE_PATH.stat().st_size > LOG_MAX_BYTES:
+            LOG_FILE_PATH.replace(LOG_FILE_PATH.with_suffix('.old.txt'))
+        with open(LOG_FILE_PATH, 'a', encoding='utf-8') as log_file:
+            log_file.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Input: {filepath} | Mode: {target}\n")
             log_file.write(traceback.format_exc())
-            log_file.write('---------------------------------------------------------------------\n')
+            log_file.write('-' * 70 + '\n')
     except OSError:
         pass
 
-def _sha256_text(text: str) -> str:
-    """Return SHA256 hex digest of a UTF-8 string."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+# ── Notifications ───────────────────────────────────────────────────────
+
+def show_toast(title: str, message: str, open_path: Optional[Path] = None) -> None:
+    """
+    Fire-and-forget Windows notification. Clicking it opens `open_path`
+    (usually the folder with the result). Falls back to stdout off-Windows
+    or when the notification platform isn't available.
+    """
+    try:
+        if os.environ.get('POCKETCONVERTER_NO_TOAST'):  # tests / CI
+            raise RuntimeError
+        from win11toast import notify
+        kwargs = {'app_id': APP_ID, 'icon': str(ICON_PATH.resolve())}
+        if open_path:
+            kwargs['on_click'] = Path(open_path).resolve().as_uri()
+        notify(title, message, **kwargs)
+    except Exception:
+        try:
+            print(f"[{title}] {message}")
+        except Exception:
+            pass
 
 
-def _image_pixel_hash(path: Path) -> str:
-    """Hash the raw RGB pixel data (deterministic regardless of metadata)."""
-    from PIL import Image
-    img = Image.open(path)
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    return hashlib.sha256(img.tobytes()).hexdigest()
-
-
-def _pdf_text_hash(path: Path) -> str:
-    """Extract text from PDF and return its SHA256 hash."""
-    import pymupdf
-    doc = pymupdf.open(str(path))
-    text = "".join(page.get_text("text") for page in doc)
-    doc.close()
-    return _sha256_text(text)
-
-
-def _docx_text_hash(path: Path) -> str:
-    """Extract text from DOCX and return its SHA256 hash."""
-    from docx import Document
-    doc = Document(str(path))
-    text = "\n".join(p.text for p in doc.paragraphs)
-    return _sha256_text(text)
+def show_message_box(title: str, text: str) -> None:
+    if os.name == 'nt':
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, text, title, 0x40)  # MB_ICONINFORMATION
+    else:
+        print(f"{title}\n{text}")

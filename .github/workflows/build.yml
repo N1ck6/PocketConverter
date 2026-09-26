@@ -1,0 +1,120 @@
+# Reusable pipeline: lint -> unit tests -> build Setup.exe -> test the installer.
+# Not triggered on its own; ci.yml and release.yml call it, so a release is
+# always built by exactly the steps that CI runs on every push.
+name: Build
+
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: Version from converter_app/__init__.py
+        value: ${{ jobs.package.outputs.version }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: python -m ruff check . --output-format=github
+
+      - name: Unit tests
+        run: python -m pytest Test -v -p no:warnings --junitxml=test-results.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-py${{ matrix.python }}
+          path: test-results.xml
+
+  package:
+    name: Build installer
+    needs: test
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"  # the Python bundled into converter.exe
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      # Optional code signing. Add two repository secrets to enable it:
+      #   SIGNING_CERT_PFX_BASE64  - the .pfx file, base64-encoded
+      #   SIGNING_CERT_PASSWORD    - its password
+      - name: Import signing certificate
+        id: cert
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.SIGNING_CERT_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: |
+          if (-not $env:PFX_BASE64) { Write-Host "No certificate configured - building unsigned."; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+          $password = ConvertTo-SecureString $env:PFX_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          "$($signtool.DirectoryName)" >> $env:GITHUB_PATH
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+
+      - name: Build (PyInstaller + smoke test + Inno Setup)
+        id: build
+        shell: pwsh
+        env:
+          POCKETCONVERTER_CERT_THUMBPRINT: ${{ steps.cert.outputs.thumbprint }}
+        run: |
+          ./build.ps1 -SkipTests   # tests already ran in the "test" job
+          $version = ([regex]::Match((Get-Content converter_app/__init__.py -Raw), '__version__\s*=\s*"([^"]+)"')).Groups[1].Value
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      # The runner is a throwaway VM, so we can really install, upgrade and
+      # uninstall the app here - something you'd never do on your own PC.
+      - name: Test the installer (install / upgrade / per-user / uninstall)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem installer/output/PocketConverterSetup-*.exe | Select-Object -First 1
+          ./installer/installer-test.ps1 -Setup $setup.FullName
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketConverterSetup
+          path: |
+            installer/output/PocketConverterSetup-*.exe
+            installer/output/PocketConverterSetup-*.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
