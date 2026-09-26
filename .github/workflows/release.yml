@@ -33,7 +33,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       publish: ${{ steps.version.outputs.publish }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Compare __version__ with existing releases
         id: version
@@ -67,7 +67,7 @@ jobs:
     permissions:
       contents: write  # needed to create the tag and the release
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
         with:
