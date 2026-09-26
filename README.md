@@ -85,7 +85,7 @@ Without the installer, you can register the menu for your user with `python remo
 | `converter_app/formats.py` | **Single source of truth** for which conversions the menu offers |
 | `converter_app/*_converter.py` | Image, document, media (FFmpeg), data and folder converters |
 | `installer/` | Inno Setup script, registry generator, smoke and installer tests |
-| `.github/workflows/` | CI (every push/PR) and Release (on `v*` tags) pipelines |
+| `.github/workflows/` | CI (every pull request) and Release (on merge into `main`) pipelines |
 
 ### Adding a format
 
@@ -97,8 +97,10 @@ The installer's registry entries are generated from the map, so there's nothing 
 
 ### Releasing
 
-1. Bump `__version__` in `converter_app/__init__.py` and add `docs/release-notes/v<version>.md`.
-2. `git tag v<version>` and `git push origin v<version>`. GitHub Actions builds, tests and publishes the release.
+1. On `development`: bump `__version__` in `converter_app/__init__.py` and add `docs/release-notes/v<version>.md`.
+2. Open a pull request `development` → `main` and wait for CI to pass.
+3. Merge it. GitHub Actions builds and tests again, creates the `v<version>` tag and publishes the release.
+   Merges that don't change the version are built and tested but not released. Don't push version tags by hand.
 
 ## Contributing
 
