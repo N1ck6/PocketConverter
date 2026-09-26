@@ -41,7 +41,7 @@ jobs:
 
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-py${{ matrix.python }}
           path: test-results.xml
@@ -110,7 +110,7 @@ jobs:
           ./installer/installer-test.ps1 -Setup $setup.FullName
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PocketConverterSetup
           path: |
