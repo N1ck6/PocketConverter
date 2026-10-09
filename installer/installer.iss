@@ -13,6 +13,10 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0-dev"
 #endif
+; Numeric x.y.z.w form of the version for the Windows version resource
+#ifndef MyAppFileVersion
+  #define MyAppFileVersion "0.0.0.0"
+#endif
 #define MyAppPublisher "N1ck6"
 #define MyAppURL "https://github.com/N1ck6/PocketConverter"
 #define MyAppExeName "converter.exe"
@@ -26,6 +30,16 @@ AppId={{4D2FAE62-BEB0-42D7-A1EC-4175D382F64A}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
+; Setup.exe's Properties > Details. SignPath checks product name and version
+; of every file it signs, so set them explicitly (same values as converter.exe).
+VersionInfoProductName={#MyAppName}
+VersionInfoProductTextVersion={#MyAppVersion}
+VersionInfoTextVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppFileVersion}
+VersionInfoProductVersion={#MyAppFileVersion}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} Setup
+VersionInfoCopyright=MIT License
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues

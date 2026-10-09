@@ -24,7 +24,7 @@ The authoritative list is [`converter_app/formats.py`](converter_app/formats.py)
 ## Install
 
 1. Download **`PocketConverterSetup-<version>.exe`** from the [latest release](https://github.com/N1ck6/PocketConverter/releases/latest).
-2. Run it. If Windows SmartScreen says *"Windows protected your PC"*, click **More info → Run anyway**. The installer isn't code-signed yet.
+2. Run it. If Windows SmartScreen says *"Windows protected your PC"*, click **More info → Run anyway** (see [Code signing policy](#code-signing-policy)).
 3. Choose **Install for all users** (needs admin) or **Install for me only** (no admin needed).
 
 Upgrading from 1.x? Run the new installer over the old version. It replaces 1.x in place and removes the old menu entries.
@@ -109,6 +109,37 @@ The installer's registry entries are generated from the map, so there's nothing 
 3. Commit your changes and push
 4. Open a pull request. CI will lint, test and build it automatically.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+Team roles (everyone uses multi-factor authentication on GitHub and SignPath):
+
+- **Authors** (may change the code without further review): [N1ck6](https://github.com/N1ck6)
+- **Reviewers** (review every pull request from outside contributors): [N1ck6](https://github.com/N1ck6)
+- **Approvers** (approve every signing request): [N1ck6](https://github.com/N1ck6)
+
+Only `converter.exe` and the installer built from this repository are signed. Every release is built from source by the [Release workflow](.github/workflows/release.yml) on GitHub-hosted runners, and each signing request is approved manually. Bundled third-party libraries are not signed with this certificate.
+
+### Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+All conversions run locally on your computer. PocketConverter has no telemetry, no update checks and no other network access, and neither do the components it bundles.
+
 ## License
 
-[MIT](LICENSE)
+PocketConverter's own code is under the [MIT license](LICENSE). The installer also contains these open-source components, each under its own license:
+
+| Component | Used for | License |
+|-----------|----------|---------|
+| [PyMuPDF](https://github.com/pymupdf/PyMuPDF) | reading PDFs, rendering SVG | AGPL-3.0 (used under its open-source option) |
+| [FFmpeg](https://ffmpeg.org) (via imageio-ffmpeg) | audio and video | GPL-3.0 |
+| [html2text](https://github.com/Alir3z4/html2text) | HTML → Markdown | GPL-3.0 |
+| [fpdf2](https://github.com/py-pdf/fpdf2) | creating PDFs | LGPL-3.0 |
+| [pdf2docx](https://github.com/ArtifexSoftware/pdf2docx), [python-docx](https://github.com/python-openxml/python-docx) | Word documents | MIT |
+| [Pillow](https://github.com/python-pillow/Pillow), [pillow-heif](https://github.com/bigcat88/pillow_heif) | images, HEIC | MIT-CMU, BSD-3-Clause |
+| [OpenCV](https://github.com/opencv/opencv-python), [NumPy](https://numpy.org) | used by pdf2docx | Apache-2.0, BSD-3-Clause |
+| PyYAML, Markdown, Beautiful Soup, win11toast, Python | data formats, notifications, runtime | MIT, BSD, PSF |
+
+Because of the GPL/AGPL components, the installer as a whole is distributed under the terms of the AGPL-3.0. Its complete source code is this repository.

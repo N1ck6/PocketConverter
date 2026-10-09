@@ -5,6 +5,11 @@ name: Build
 
 on:
   workflow_call:
+    inputs:
+      sign:
+        description: Sign converter.exe and Setup.exe with SignPath (releases only)
+        type: boolean
+        default: false
     outputs:
       version:
         description: Version from converter_app/__init__.py
@@ -12,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read  # SignPath downloads the unsigned files from this run's artifacts
 
 jobs:
   test:
@@ -71,35 +77,105 @@ jobs:
             choco install innosetup --no-progress -y
           }
 
-      # Optional code signing. Add two repository secrets to enable it:
-      #   SIGNING_CERT_PFX_BASE64  - the .pfx file, base64-encoded
-      #   SIGNING_CERT_PASSWORD    - its password
-      - name: Import signing certificate
-        id: cert
-        shell: pwsh
-        env:
-          PFX_BASE64: ${{ secrets.SIGNING_CERT_PFX_BASE64 }}
-          PFX_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
-        run: |
-          if (-not $env:PFX_BASE64) { Write-Host "No certificate configured - building unsigned."; exit 0 }
-          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
-          $password = ConvertTo-SecureString $env:PFX_PASSWORD -AsPlainText -Force
-          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
-          Remove-Item $pfx
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
-          "$($signtool.DirectoryName)" >> $env:GITHUB_PATH
-          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
-
       - name: Build (PyInstaller + smoke test + Inno Setup)
         id: build
         shell: pwsh
-        env:
-          POCKETCONVERTER_CERT_THUMBPRINT: ${{ steps.cert.outputs.thumbprint }}
         run: |
           ./build.ps1 -SkipTests   # tests already ran in the "test" job
           $version = ([regex]::Match((Get-Content converter_app/__init__.py -Raw), '__version__\s*=\s*"([^"]+)"')).Groups[1].Value
           "version=$version" >> $env:GITHUB_OUTPUT
+
+      # ── Code signing with SignPath (releases only) ──────────────────────
+      # Set up once, see docs/code-signing.md:
+      #   secret   SIGNPATH_API_TOKEN
+      #   variable SIGNPATH_ORGANIZATION_ID
+      #   variable SIGNPATH_PROJECT_SLUG          (default: PocketConverter)
+      #   variable SIGNPATH_SIGNING_POLICY_SLUG   (default: release-signing)
+      # Each signing request waits until it's approved in the SignPath web app.
+      - name: Check signing configuration
+        id: signing
+        shell: pwsh
+        env:
+          WANTED: ${{ inputs.sign }}
+          API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+        run: |
+          $enabled = $env:WANTED -eq 'true' -and $env:API_TOKEN -and $env:ORGANIZATION_ID
+          if ($env:WANTED -eq 'true' -and -not $enabled) {
+            Write-Host "::warning::SignPath isn't configured (see docs/code-signing.md) - this release is UNSIGNED."
+          }
+          "enabled=$($enabled.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+      - name: Upload converter.exe for signing
+        id: unsigned-app
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-converter
+          path: dist/converter/converter.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign converter.exe (approve the request in SignPath)
+        if: steps.signing.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'PocketConverter' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.build.outputs.version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 10800  # 3 h to approve
+          output-artifact-directory: signed/app
+
+      - name: Rebuild Setup.exe around the signed converter.exe
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item signed/app/converter.exe dist/converter/converter.exe -Force
+          ./build.ps1 -InstallerOnly
+
+      - name: Upload Setup.exe for signing
+        id: unsigned-setup
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-setup
+          path: installer/output/PocketConverterSetup-*.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign Setup.exe (approve the request in SignPath)
+        if: steps.signing.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'PocketConverter' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.build.outputs.version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 10800
+          output-artifact-directory: signed/setup
+
+      - name: Use the signed Setup.exe and verify both signatures
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item signed/setup/*.exe installer/output/ -Force
+          ./build.ps1 -ChecksumOnly
+          foreach ($file in @('dist/converter/converter.exe') + (Get-ChildItem installer/output/*.exe).FullName) {
+            $signature = Get-AuthenticodeSignature $file
+            if ($signature.Status -ne 'Valid') { throw "$file is not validly signed: $($signature.StatusMessage)" }
+            Write-Host "$file - signed by $($signature.SignerCertificate.Subject)"
+          }
 
       # The runner is a throwaway VM, so we can really install, upgrade and
       # uninstall the app here - something you'd never do on your own PC.
