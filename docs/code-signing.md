@@ -1,7 +1,15 @@
 # Code signing
 
-Releases are signed through [SignPath Foundation](https://signpath.org) (free for open source).
-The rules we agreed to are in the README's [Code signing policy](../README.md#code-signing-policy).
+> **Status (October 2026): releases are unsigned.** The application to the free
+> [SignPath Foundation](https://signpath.org) program was declined because the project doesn't yet have
+> enough public visibility. They look for community adoption (stars, forks, contributors), outside
+> references (articles, Reddit, Stack Overflow, YouTube) and sustained activity, and invite a new
+> application once the project is better known.
+>
+> The CI signing steps stay in place but are inactive until `SIGNPATH_API_TOKEN` is set, so a later
+> approval only needs the one-time setup below. SignPath also requires a "Code signing policy" section
+> on the project's home page; the text used for the application is in the git history of README.md
+> (commit 10e1a71) and must be added back before reapplying.
 
 ## What gets signed, and when
 
@@ -84,10 +92,14 @@ After every release, submit the files to Microsoft so Defender learns they're cl
 
 1. Go to <https://www.microsoft.com/en-us/wdsi/filesubmission>, choose **Software developer**, sign in with a Microsoft account (lets you track the result).
 2. Product: **Microsoft Defender Antivirus** (or **Microsoft Defender SmartScreen** for the "Windows protected your PC" warning).
-3. The limit is **50 MB per file**, so the 96 MB installer can't be uploaded. Upload `C:\Program Files\PocketConverter\converter.exe` instead, plus any other single file Defender reports by name.
+3. Upload the installer **exactly as published in the GitHub release** (a local build has a different hash). The limit is 500 MB per file. If Defender Antivirus flags a file after installation, also upload that file, e.g. `C:\Program Files\PocketConverter\converter.exe`.
 4. "What do you believe this file is?" → **Incorrectly detected as malware/malicious**. Detection name: the name Defender shows, or `SmartScreen: unrecognized app`.
 5. Additional information, for example:
    > Open-source file converter (https://github.com/N1ck6/PocketConverter), built from public source by GitHub Actions and signed through SignPath Foundation. Release: https://github.com/N1ck6/PocketConverter/releases/latest
 6. Priority **Medium**. The answer usually arrives within a few days by e-mail and in *Submission history*.
 
-For other antivirus vendors, check the installer on <https://www.virustotal.com> and use each flagging vendor's false-positive form.
+For other antivirus vendors, check the installer and `converter.exe` on <https://www.virustotal.com>.
+Small heuristic engines often flag PyInstaller programs (malware uses the same packer). Report those to the vendor
+(contacts: <https://docs.virustotal.com/docs/false-positive-contacts>) with the file's SHA256 and VirusTotal link.
+Releases already reduce this: CI compiles its own PyInstaller bootloader instead of the prebuilt one that
+signatures target (see the *Rebuild the PyInstaller bootloader* step in [build.yml](../.github/workflows/build.yml)).

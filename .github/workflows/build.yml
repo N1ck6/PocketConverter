@@ -70,6 +70,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      # Some antivirus engines flag the prebuilt PyInstaller bootloader, because
+      # malware packed with PyInstaller uses the same file. Compiling our own
+      # (MSVC is preinstalled on the runner) makes converter.exe a different binary.
+      - name: Rebuild the PyInstaller bootloader from source
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path requirements-dev.txt -Pattern '^pyinstaller==(.+)$').Matches[0].Groups[1].Value
+          $env:PYINSTALLER_COMPILE_BOOTLOADER = "1"
+          pip install --force-reinstall --no-deps --no-cache-dir --no-binary pyinstaller "pyinstaller==$version"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $loader = python -c "import PyInstaller, pathlib; print(pathlib.Path(PyInstaller.__file__).parent / 'bootloader' / 'Windows-64bit-intel' / 'runw.exe')"
+          if ((Get-Item $loader).LastWriteTime -lt (Get-Date).AddMinutes(-30)) { throw "The bootloader was not rebuilt: $loader" }
+          Write-Host "Bootloader built: $loader"
+
       - name: Install Inno Setup
         shell: pwsh
         run: |
