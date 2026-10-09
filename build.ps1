@@ -6,14 +6,20 @@
     Output: installer\output\PocketConverterSetup-<version>.exe (+ .sha256).
     The same script runs locally and in GitHub Actions (.github\workflows).
 
-    Requires: Python 3.10+ with requirements-dev.txt installed, Inno Setup 6.
+    Requires: Python 3.12+ with requirements-dev.txt installed, Inno Setup 6.
     Signing is optional: pass -CertThumbprint (or set
     POCKETCONVERTER_CERT_THUMBPRINT) and have signtool.exe on PATH.
+
+    Releases are signed by SignPath in CI instead (docs/code-signing.md), which
+    needs the build split in stages: -InstallerOnly rebuilds Setup.exe around an
+    already signed converter.exe, -ChecksumOnly rewrites the .sha256 after
+    Setup.exe itself has been signed.
 
 .EXAMPLE
     .\build.ps1                                   # unsigned build, version from converter_app\__init__.py
     .\build.ps1 -Python .\.venv\Scripts\python.exe
-    .\build.ps1 -CertThumbprint AABBCCDD...       # signed release build
+    .\build.ps1 -CertThumbprint AABBCCDD...       # signed with your own certificate
+    .\build.ps1 -InstallerOnly                    # Setup.exe from the existing dist\converter
 #>
 
 param(
@@ -21,7 +27,9 @@ param(
     [string]$Python = "python",
     [string]$CertThumbprint = $env:POCKETCONVERTER_CERT_THUMBPRINT,
     [string]$TimestampUrl = "http://timestamp.digicert.com",
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$InstallerOnly,
+    [switch]$ChecksumOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +48,13 @@ function Invoke-Native([string]$what, [scriptblock]$command) {
     if ($LASTEXITCODE -ne 0) { throw "$what failed (exit code $LASTEXITCODE)" }
 }
 
+function Write-Checksum($setup) {
+    $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+    # LF line ending: "sha256sum -c" (Linux, Git Bash) rejects the CRLF that Out-File writes
+    [IO.File]::WriteAllText("$($setup.FullName).sha256", "$hash  $($setup.Name)`n")
+    return $hash
+}
+
 # ── Version ───────────────────────────────────────────────────────────
 $sourceVersion = ([regex]::Match((Get-Content "converter_app\__init__.py" -Raw), '__version__\s*=\s*"([^"]+)"')).Groups[1].Value
 if (-not $Version) { $Version = $sourceVersion }
@@ -49,10 +64,18 @@ if ($Version -ne $sourceVersion) {
 $numeric = (($Version -split '[-+]')[0].Split('.') + @('0', '0', '0', '0')) | Select-Object -First 4
 Write-Host "Building PocketConverter $Version" -ForegroundColor Green
 
+if ($ChecksumOnly) {
+    $hash = Write-Checksum (Get-Item ".\installer\output\PocketConverterSetup-$Version.exe")
+    Write-Host "SHA256: $hash"
+    exit 0
+}
+
 # ── Tools ─────────────────────────────────────────────────────────────
 Step "1) Checking tools"
 Invoke-Native "Python" { & $Python --version }
-Invoke-Native "PyInstaller (pip install -r requirements-dev.txt)" { & $Python -m PyInstaller --version }
+if (-not $InstallerOnly) {
+    Invoke-Native "PyInstaller (pip install -r requirements-dev.txt)" { & $Python -m PyInstaller --version }
+}
 
 $iscc = (Get-Command "ISCC.exe" -ErrorAction SilentlyContinue).Source
 if (-not $iscc) {
@@ -68,12 +91,17 @@ if ($sign -and -not (Get-Command signtool -ErrorAction SilentlyContinue)) {
 }
 
 # ── Tests ─────────────────────────────────────────────────────────────
-if (-not $SkipTests) {
+if (-not $SkipTests -and -not $InstallerOnly) {
     Step "2) Running unit tests"
     Invoke-Native "Unit tests" { & $Python -m pytest Test -q -p no:warnings }
 }
 
 # ── Freeze ────────────────────────────────────────────────────────────
+$exe = ".\dist\converter\converter.exe"
+if ($InstallerOnly) {
+    if (-not (Test-Path $exe)) { throw "-InstallerOnly needs an existing $exe - run a full build first." }
+    Remove-Item -Recurse -Force ".\installer\output" -ErrorAction SilentlyContinue
+} else {
 Step "3) Building dist\converter with PyInstaller"
 Remove-Item -Recurse -Force ".\build", ".\dist", ".\installer\output" -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force ".\build" | Out-Null
@@ -114,7 +142,6 @@ Invoke-Native "PyInstaller" {
         converter.py
 }
 
-$exe = ".\dist\converter\converter.exe"
 if ($sign) {
     Step "3b) Signing converter.exe"
     Invoke-Native "Signing converter.exe" { signtool sign /sha1 $CertThumbprint /fd sha256 /tr $TimestampUrl /td sha256 $exe }
@@ -122,13 +149,14 @@ if ($sign) {
 
 Step "4) Smoke-testing the frozen exe"
 & "$root\installer\smoke-test.ps1" -Exe (Resolve-Path $exe)
+}
 
 # ── Installer ─────────────────────────────────────────────────────────
 Step "5) Generating registry entries from converter_app\formats.py"
 Invoke-Native "Registry generation" { & $Python .\installer\generate_registry_iss.py .\installer\registry_generated.iss }
 
 Step "6) Compiling installer with Inno Setup"
-$isccArgs = @("/Qp", "/DMyAppVersion=$Version")
+$isccArgs = @("/Qp", "/DMyAppVersion=$Version", "/DMyAppFileVersion=$($numeric -join '.')")
 if ($sign) {
     # $f is replaced by Inno with the quoted path of each file it signs
     $isccArgs += @("/Ssigntoolcli=signtool sign /sha1 $CertThumbprint /fd sha256 /tr $TimestampUrl /td sha256 `$f", "/DSIGN")
@@ -136,9 +164,17 @@ if ($sign) {
 Invoke-Native "Inno Setup" { & $iscc @isccArgs ".\installer\installer.iss" }
 
 $setup = Get-Item ".\installer\output\PocketConverterSetup-$Version.exe"
-$hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
-# LF line ending: "sha256sum -c" (Linux, Git Bash) rejects the CRLF that Out-File writes
-[IO.File]::WriteAllText("$($setup.FullName).sha256", "$hash  $($setup.Name)`n")
+
+# Inno pads version strings with spaces; SignPath compares them exactly
+Invoke-Native "Trimming Setup.exe version info" { & $Python .\installer\trim_version_info.py $setup.FullName }
+foreach ($file in (Get-Item $exe), (Get-Item $setup.FullName)) {
+    $info = $file.VersionInfo
+    if ($info.ProductName -ne 'PocketConverter' -or $info.ProductVersion -ne $Version) {
+        throw "$($file.Name) has ProductName '$($info.ProductName)' / ProductVersion '$($info.ProductVersion)', expected 'PocketConverter' / '$Version'"
+    }
+}
+
+$hash = Write-Checksum $setup
 
 Write-Host "`nDone: $($setup.FullName) ($([math]::Round($setup.Length / 1MB, 1)) MB)" -ForegroundColor Green
 Write-Host "SHA256: $hash"

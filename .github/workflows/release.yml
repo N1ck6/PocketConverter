@@ -24,6 +24,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read  # needed by build.yml's signing step
 
 jobs:
   check:
@@ -57,6 +58,8 @@ jobs:
   build:
     needs: check
     uses: ./.github/workflows/build.yml
+    with:
+      sign: ${{ needs.check.outputs.publish == 'true' }}  # only sign what gets published
     secrets: inherit
 
   publish:
