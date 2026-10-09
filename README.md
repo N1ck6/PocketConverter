@@ -24,7 +24,7 @@ The authoritative list is [`converter_app/formats.py`](converter_app/formats.py)
 ## Install
 
 1. Download **`PocketConverterSetup-<version>.exe`** from the [latest release](https://github.com/N1ck6/PocketConverter/releases/latest).
-2. Run it. If Windows SmartScreen says *"Windows protected your PC"*, click **More info → Run anyway** (see [Code signing policy](#code-signing-policy)).
+2. Run it. If Windows SmartScreen says *"Windows protected your PC"*, click **More info → Run anyway** (see [Security and privacy](#security-and-privacy)).
 3. Choose **Install for all users** (needs admin) or **Install for me only** (no admin needed).
 
 Upgrading from 1.x? Run the new installer over the old version. It replaces 1.x in place and removes the old menu entries.
@@ -109,17 +109,9 @@ The installer's registry entries are generated from the map, so there's nothing 
 3. Commit your changes and push
 4. Open a pull request. CI will lint, test and build it automatically.
 
-## Code signing policy
+## Security and privacy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-Team roles (everyone uses multi-factor authentication on GitHub and SignPath):
-
-- **Authors** (may change the code without further review): [N1ck6](https://github.com/N1ck6)
-- **Reviewers** (review every pull request from outside contributors): [N1ck6](https://github.com/N1ck6)
-- **Approvers** (approve every signing request): [N1ck6](https://github.com/N1ck6)
-
-Only `converter.exe` and the installer built from this repository are signed. Every release is built from source by the [Release workflow](.github/workflows/release.yml) on GitHub-hosted runners, and each signing request is approved manually. Bundled third-party libraries are not signed with this certificate.
+Releases are **not code-signed** yet, so Windows SmartScreen may warn on first run and a few antivirus engines occasionally flag the PyInstaller-built program. Every release is built from this repository's public source by the [Release workflow](.github/workflows/release.yml) on GitHub-hosted runners, after automated tests and an install/uninstall test. Each installer is published with its SHA256 checksum, so you can verify your download.
 
 ### Privacy policy
 

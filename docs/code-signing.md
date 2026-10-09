@@ -1,7 +1,15 @@
 # Code signing
 
-Releases are signed through [SignPath Foundation](https://signpath.org) (free for open source).
-The rules we agreed to are in the README's [Code signing policy](../README.md#code-signing-policy).
+> **Status (October 2026): releases are unsigned.** The application to the free
+> [SignPath Foundation](https://signpath.org) program was declined because the project doesn't yet have
+> enough public visibility. They look for community adoption (stars, forks, contributors), outside
+> references (articles, Reddit, Stack Overflow, YouTube) and sustained activity, and invite a new
+> application once the project is better known.
+>
+> The CI signing steps stay in place but are inactive until `SIGNPATH_API_TOKEN` is set, so a later
+> approval only needs the one-time setup below. SignPath also requires a "Code signing policy" section
+> on the project's home page; the text used for the application is in the git history of README.md
+> (commit 10e1a71) and must be added back before reapplying.
 
 ## What gets signed, and when
 
